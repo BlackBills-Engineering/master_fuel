@@ -54,7 +54,7 @@ class PumpMaster:
             s.serial_port, s.baud_rate,
             bytesize=8, parity=serial.PARITY_ODD, stopbits=1, timeout=0
         )
-        self.addr_range = range(0x50, 0x70)       # исправили на 50–6F
+        self.addr_range = range(s.addr_start, s.addr_end+1)       # исправили на 50–6F
         self.events: asyncio.Queue = asyncio.Queue()
         self.log = logging.getLogger("PumpMaster")
 
