@@ -1,4 +1,3 @@
-# app/models.py
 from pydantic import BaseModel, Field, conint, confloat
 from typing import Literal
 from .state import SideState
@@ -6,7 +5,7 @@ from .enums import PumpCmd, PumpStatus
 
 class PresetRq(BaseModel):
     side: Literal["left","right"]
-    volume_l: confloat(gt=0)|None = Field(None, example=20)
+    volume_l:  confloat(gt=0)|None = Field(None, example=20)
     amount_cur: confloat(gt=0)|None = Field(None, example=1500)
 
 class CommandRq(BaseModel):
@@ -14,7 +13,7 @@ class CommandRq(BaseModel):
 
 class PumpSnapshot(BaseModel):
     addr: conint(ge=0)
-    left: SideState
+    left:  SideState
     right: SideState
 
 class Event(BaseModel):

@@ -1,4 +1,3 @@
-# app/state.py
 from pydantic import BaseModel
 from collections import defaultdict
 from typing import Dict
@@ -13,8 +12,7 @@ class SideState(BaseModel):
     preset_amt: float | None = None
 
 class PumpState(BaseModel):
-    left: SideState = SideState()
+    left:  SideState = SideState()
     right: SideState = SideState()
 
-# addr → PumpState
 store: Dict[int, PumpState] = defaultdict(PumpState)
