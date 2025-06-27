@@ -1,0 +1,20 @@
+# app/enums.py
+from enum import IntEnum
+
+class PumpCmd(IntEnum):
+    RESET      = 0x01
+    AUTHORIZE  = 0x06
+    SUSPEND    = 0x0A
+    RESUME     = 0x0B
+    STOP       = 0x02
+    SWITCH_OFF = 0x05
+
+class PumpStatus(IntEnum):
+    RESET                 = 0x01
+    AUTHORIZED            = 0x02
+    FILLING               = 0x03
+    SUSPENDED             = 0x04
+    FILLING_COMPLETED     = 0x05
+    MAX_REACHED           = 0x06
+    SWITCHED_OFF          = 0x07
+    PUMP_NOT_PROGRAMMED   = 0x08
