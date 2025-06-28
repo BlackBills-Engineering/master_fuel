@@ -6,7 +6,7 @@ quick_poll_driver.py  –  опрашиваем колонку “как в бо
 """
 
 import binascii, logging, sys, time
-from app.mekser.driver import driver          # singleton, уже настроен из ENV
+from mekser.driver import driver          # singleton, уже настроен из ENV
 
 logging.basicConfig(level=logging.INFO)
 
