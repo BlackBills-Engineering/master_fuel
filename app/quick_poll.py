@@ -7,7 +7,7 @@ ultra_poll.py  –  шлёт POLL → печатает весь RX постро�
 import serial, time, binascii
 
 # ───── НАСТРОЙ ОДНУ СЕКЦИЮ ───────────────────────────────────────────────
-PORT     = "COM5"                         # чей PCC-CL / USB-COM
+PORT     = "COM3"                         # чей PCC-CL / USB-COM
 BAUD     = 19200                          # 9600, если нужно
 PARITY   = serial.PARITY_ODD              # PARITY_ODD / PARITY_EVEN / PARITY_NONE
 ADDR     = 0x51                           # 0x50-0x55 или 0x01-0x05
