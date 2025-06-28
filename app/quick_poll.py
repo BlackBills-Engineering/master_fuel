@@ -1,36 +1,34 @@
 #!/usr/bin/env python3
 """
-ultra_poll.py  –  шлёт POLL → печатает весь RX построчно.
-(1) Запусти; (2) смотри, есть ли пакеты длиной ≥ 6 байт, оканчивающиеся 03fa.
+quick_poll_driver.py  –  опрашиваем колонку “как в бою”.
+Отправляем CD1 (RETURN STATUS) и печатаем сырой ответ.
+Работает на тех же ENV-параметрах, что и FuelMaster.
 """
 
-import serial, time, binascii
+import binascii, logging, sys, time
+from app.mekser.driver import driver          # singleton, уже настроен из ENV
 
-# ───── НАСТРОЙ ОДНУ СЕКЦИЮ ───────────────────────────────────────────────
-PORT     = "COM3"                         # чей PCC-CL / USB-COM
-BAUD     = 9600                          # 9600, если нужно
-PARITY   = "N"              # PARITY_ODD / PARITY_EVEN / PARITY_NONE
-ADDR     = 0x51                           # 0x50-0x55 или 0x01-0x05
-# ─────────────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO)
 
-SF, CTRL = 0xFA, 0x81
-POLL     = bytes([ADDR, CTRL, SF])
+# пробуем адреса 0x50-0x55 (pump_id 0-5) И старые 0x01-0x05
+ADDRS = [*range(0x50, 0x56), *range(0x01, 0x06)]
 
-print(f"PORT={PORT}  BAUD={BAUD}  PARITY={PARITY[0]}  ADR=0x{ADDR:02X}")
-print("TX:", binascii.hexlify(POLL).decode())
+for adr in ADDRS:
+    pump_id = adr - 0x50 if adr >= 0x50 else adr   # формула из драйвера
+    try:
+        raw = driver.cd1(pump_id, 0x00)            # DCC=0x00  → RETURN STATUS
+    except Exception as e:
+        print(f"addr 0x{adr:02X} ERR:", e)
+        continue
 
-try:
-    ser = serial.Serial(PORT, BAUD, bytesize=8, parity=PARITY,
-                        stopbits=1, timeout=0.5)
-except serial.SerialException as e:
-    print("Не открылся порт:", e); raise SystemExit
-
-while True:
-    ser.write(POLL)            # ► посылаем POLL
-    time.sleep(0.05)           # 50 мс – типовой отклик у MKR-5 9600/19200
-    data = ser.read_all()      # ◄ читаем ВСЁ, что пришло
-    if data:
-        print("RX:", binascii.hexlify(data).decode())
+    if raw and len(raw) >= 6 and raw[-2:] == b"\x03\xfa":
+        print(f"\nFOUND!  port={driver._ser.port}  "
+              f"baud={driver._ser.baudrate}  parity={driver._ser.parity}  "
+              f"addr=0x{adr:02X}  len={len(raw)}")
+        print("HEX:", binascii.hexlify(raw).decode())
+        sys.exit(0)
     else:
-        print("RX: <пусто>")
-    time.sleep(0.15)           # пауза между циклами
+        print(f"addr 0x{adr:02X} → echo/empty ({binascii.hexlify(raw).decode()})")
+
+print("\nНи один адрес не вернул DATA-кадр – проверь полярность (DATA+/-), "
+      "скорость, parity, общий GND, Auto-DE.")

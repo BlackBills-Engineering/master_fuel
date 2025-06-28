@@ -2,6 +2,7 @@ import asyncio, serial, logging
 from .config import get_settings
 from .state  import store
 from .enums  import PumpCmd, PumpStatus
+from app.mekser.driver import driver as hw
 
 CRC_POLY = 0x1021
 SF, ETX  = 0xFA, 0x03
@@ -94,11 +95,14 @@ class PumpMaster:
             await asyncio.sleep(0)
 
     async def _initial_scan(self):
-        """Запрашиваем статусы у всех адресов, чтобы store не был пустой"""
         for addr in self.addr_range:
-            blk = bytes([CD_CMD, 2, 0, 0x00])     # RETURN STATUS = DCC 00h
-            self._send(addr, [blk])
-            await asyncio.sleep(0.05)
+            # driver работает с pump_id (0…31), а не с «сырым» адресом 0x50+id
+            pump_id = addr - 0x50 if addr >= 0x50 else addr
+            try:
+                hw.cd1(pump_id, 0x00)          # CD1 / DCC=00h → RETURN STATUS
+            except Exception as e:
+                self.log.warning("addr 0x%02X: %s", addr, e)
+            await asyncio.sleep(0.05) 
 
     # ---------- разбор входящих DATA ----------
     async def _handle(self, msg):
@@ -136,4 +140,4 @@ class PumpMaster:
 
     # ---------- отправка ----------
     def _send(self, addr: int, chunks: list[bytes]):
-        self.ser.write(build_block(addr, chunks))
+        hw.transact(addr, chunks, timeout=1.0)
