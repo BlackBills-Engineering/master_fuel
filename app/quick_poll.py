@@ -7,7 +7,7 @@ quick_poll.py  –  ищем живую MKR-колонку.
 import time, itertools, binascii, serial, sys
 
 # ---------- что перебираем ----------
-PORTS     = ["/dev/ttyS0", "/dev/ttyS4", "/dev/ttyS5"]
+PORTS     = ["/dev/ttyS0", "/dev/ttyS4", "/dev/COM5"]
 BAUDS     = [19200, 9600]
 PARITIES  = {"O": serial.PARITY_ODD,
              "E": serial.PARITY_EVEN,
