@@ -1,42 +1,36 @@
 #!/usr/bin/env python3
 """
-quick_poll_win.py  –  непрерывно шлём POLL и печатаем сырой RX.
-Настройки меняются одной переменной PORT.
+ultra_poll.py  –  шлёт POLL → печатает весь RX построчно.
+(1) Запусти; (2) смотри, есть ли пакеты длиной ≥ 6 байт, оканчивающиеся 03fa.
 """
 
 import serial, time, binascii
 
-PORT      = "COM5"        # ← если PCC-CL на другом, поменяй
-BAUDRATE  = 19200         # 9600, если колонка настроена так
-PARITY    = serial.PARITY_ODD   # PARITY_ODD / PARITY_EVEN / PARITY_NONE
-POLL_ADDR = 0x50          # пробуй 0x50…0x55 и 0x01…0x05
+# ───── НАСТРОЙ ОДНУ СЕКЦИЮ ───────────────────────────────────────────────
+PORT     = "COM5"                         # чей PCC-CL / USB-COM
+BAUD     = 19200                          # 9600, если нужно
+PARITY   = serial.PARITY_ODD              # PARITY_ODD / PARITY_EVEN / PARITY_NONE
+ADDR     = 0x51                           # 0x50-0x55 или 0x01-0x05
+# ─────────────────────────────────────────────────────────────────────────
 
-SF   = 0xFA
-CTRL = 0x81               # POLL
+SF, CTRL = 0xFA, 0x81
+POLL     = bytes([ADDR, CTRL, SF])
+
+print(f"PORT={PORT}  BAUD={BAUD}  PARITY={PARITY[0]}  ADR=0x{ADDR:02X}")
+print("TX:", binascii.hexlify(POLL).decode())
 
 try:
-    ser = serial.Serial(
-        PORT, BAUDRATE,
-        bytesize=serial.EIGHTBITS,
-        parity = PARITY,
-        stopbits=serial.STOPBITS_ONE,
-        timeout = 0.15,           # 150 мс ждём ответ
-    )
+    ser = serial.Serial(PORT, BAUD, bytesize=8, parity=PARITY,
+                        stopbits=1, timeout=0.3)
 except serial.SerialException as e:
-    print(f"Не могу открыть {PORT}: {e}")
-    raise SystemExit
-
-poll = bytes([POLL_ADDR, CTRL, SF])
-print(f"PORT={PORT}  {BAUDRATE}-8{PARITY[0]}1  ADR=0x{POLL_ADDR:02X}")
-print("Poll = ", binascii.hexlify(poll).decode())
+    print("Не открылся порт:", e); raise SystemExit
 
 while True:
-    ser.reset_input_buffer()
-    ser.write(poll)                 # ► PC → ТРК
-    time.sleep(0.05)
-    data = ser.read_all()           # ◄ ответ (если есть)
+    ser.write(POLL)            # ► посылаем POLL
+    time.sleep(0.05)           # 50 мс – типовой отклик у MKR-5 9600/19200
+    data = ser.read_all()      # ◄ читаем ВСЁ, что пришло
     if data:
         print("RX:", binascii.hexlify(data).decode())
     else:
-        print("RX: <nothing>")
-    time.sleep(0.4)                 # пауза перед следующим POLL
+        print("RX: <пусто>")
+    time.sleep(0.15)           # пауза между циклами
