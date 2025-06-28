@@ -8,8 +8,8 @@ import serial, time, binascii
 
 # ───── НАСТРОЙ ОДНУ СЕКЦИЮ ───────────────────────────────────────────────
 PORT     = "COM3"                         # чей PCC-CL / USB-COM
-BAUD     = 19200                          # 9600, если нужно
-PARITY   = serial.PARITY_ODD              # PARITY_ODD / PARITY_EVEN / PARITY_NONE
+BAUD     = 9600                          # 9600, если нужно
+PARITY   = "N"              # PARITY_ODD / PARITY_EVEN / PARITY_NONE
 ADDR     = 0x51                           # 0x50-0x55 или 0x01-0x05
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ print("TX:", binascii.hexlify(POLL).decode())
 
 try:
     ser = serial.Serial(PORT, BAUD, bytesize=8, parity=PARITY,
-                        stopbits=1, timeout=0.3)
+                        stopbits=1, timeout=0.5)
 except serial.SerialException as e:
     print("Не открылся порт:", e); raise SystemExit
 
