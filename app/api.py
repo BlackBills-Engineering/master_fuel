@@ -2,10 +2,14 @@ import asyncio, uvicorn, logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from typing import Literal
 
-logging.basicConfig(
-    level=logging.DEBUG,       # ← теперь видим всё
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
+# Импортируем и инициализируем систему логирования
+from .logging_config import setup_logging, get_logger
+
+# Настройка логирования (если не было настроено автоматически)
+setup_logging(log_level="DEBUG", log_to_file=True)
+
+# Создаем логгер для API
+api_log = get_logger("API")
 
 from .pumpmaster import PumpMaster
 from .state      import store
@@ -18,7 +22,16 @@ master = PumpMaster()          # addr 0x50 берётся из ENV
 # ────────── lifecycle
 @app.on_event("startup")
 async def _run_poller():
-    asyncio.create_task(master.poll_loop())
+    api_log.info("=== APPLICATION STARTUP ===")
+    api_log.info("Starting FuelMaster API v3.0.0")
+    api_log.info("Initializing pump polling task")
+    
+    try:
+        asyncio.create_task(master.poll_loop())
+        api_log.info("Pump polling task created successfully")
+    except Exception as e:
+        api_log.error("Failed to start pump polling: %s", e)
+        raise
 
 # ────────── REST
 @app.get("/pumps", response_model=list[PumpSnapshot])
@@ -91,14 +104,27 @@ async def set_allowed_nozzles(addr: int, nozzle_numbers: list[int]):
 
 @app.post("/pumps/{addr}/preset")
 async def do_preset(addr: int, body: PresetRq):
+    api_log.info("=== PRESET REQUEST ===")
+    api_log.info("Request: addr=0x%02X, volume=%.3f L, amount=%.2f RUB", 
+                 addr, body.volume_l or 0.0, body.amount_cur or 0.0)
+    api_log.info("Raw request body: %s", body.model_dump())
+    
     try:
         master.authorize(addr, body.volume_l, body.amount_cur)
-    except AttributeError:      # если вдруг метод назван иначе
+        api_log.info("Preset request successfully forwarded to PumpMaster")
+        return {"ok": True, "addr": addr, "preset": body.model_dump()}
+    except AttributeError as e:
+        api_log.error("PumpMaster method error: %s", e)
         raise HTTPException(500, "PumpMaster has no 'authorize' method")
-    return {"ok": True}
+    except Exception as e:
+        api_log.error("Preset request failed: %s", e)
+        raise HTTPException(500, f"Preset failed: {str(e)}")
 
 @app.post("/pumps/{addr}/command")
 async def do_command(addr: int, cmd: Literal["reset","stop","switch_off","return_status","return_identity","return_filling_info"]):
+    api_log.info("=== COMMAND REQUEST ===")
+    api_log.info("Request: addr=0x%02X, command=%s", addr, cmd)
+    
     mapping = {
         "reset":               PumpCmd.RESET,
         "stop":                PumpCmd.STOP,
@@ -107,23 +133,48 @@ async def do_command(addr: int, cmd: Literal["reset","stop","switch_off","return
         "return_identity":     PumpCmd.RETURN_PUMP_IDENTITY,
         "return_filling_info": PumpCmd.RETURN_FILLING_INFO,
     }
-    master.command(addr, mapping[cmd])
-    return {"ok": True}
+    
+    try:
+        cmd_code = mapping[cmd]
+        api_log.info("Mapped command '%s' to code 0x%02X", cmd, cmd_code)
+        
+        master.command(addr, cmd_code)
+        api_log.info("Command request successfully forwarded to PumpMaster")
+        return {"ok": True, "addr": addr, "command": cmd, "code": cmd_code}
+    except KeyError:
+        api_log.error("Unknown command: %s", cmd)
+        raise HTTPException(400, f"Unknown command: {cmd}")
+    except Exception as e:
+        api_log.error("Command request failed: %s", e)
+        raise HTTPException(500, f"Command failed: {str(e)}")
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    api_log.info("=== WebSocket Connection ===")
     await ws.accept()
+    api_log.info("WebSocket connection accepted")
+    
     forward = asyncio.create_task(_forward_events(ws))
     try:
         while True:
-            await ws.receive_text()
+            message = await ws.receive_text()
+            api_log.debug("Received WebSocket message: %s", message)
     except WebSocketDisconnect:
+        api_log.info("WebSocket disconnected")
+        forward.cancel()
+    except Exception as e:
+        api_log.error("WebSocket error: %s", e)
         forward.cancel()
 
 async def _forward_events(ws: WebSocket):
-    while True:
-        ev = await master.events.get()
-        await ws.send_json(ev)  
+    api_log.info("Starting event forwarding to WebSocket")
+    try:
+        while True:
+            ev = await master.events.get()
+            api_log.info("Forwarding event to WebSocket: %s", ev)
+            await ws.send_json(ev)
+    except Exception as e:
+        api_log.error("Error forwarding event: %s", e)  
 
 # ────────── Debug
 @app.get("/debug/store")
