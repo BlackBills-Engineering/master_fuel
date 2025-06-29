@@ -52,11 +52,10 @@ class PumpMaster:
             await self._poll_one(adr)
             await asyncio.sleep(0.1)
 
-    # ───── разбор кадра
     async def _handle_frame(self, fr:bytes):
-        if len(fr)==6 and fr[-2:]==b"\x03\xfa":    # короткий ACK → игнор
+        if len(fr)==6 and fr[-2:]==b"\x03\xfa":
             return
-        if fr and fr[0]!=0x02: fr=b"\x02"+fr       # добавляем STX при его отсутствии
+        if fr and fr[0]!=0x02: fr=b"\x02"+fr
         if len(fr)<8 or fr[-1]!=0xFA: return
         if crc16(fr[1:-4])!=int.from_bytes(fr[-4:-2],"little"): return
 
@@ -71,22 +70,30 @@ class PumpMaster:
             await self._apply_dc(adr,dc,chunk)
             data=payload
 
-    async def _apply_dc(self, adr:int, dc:int, pl:bytes):
-        p=store[adr]
-        if dc==0x01 and len(pl)>=2:
-            side="right" if pl[1] else "left"
-            getattr(p,side).status=PumpStatus(pl[0])
-            await self.events.put({"addr":adr,"side":side,"status":pl[0]})
-        elif dc==0x02 and len(pl)>=9:
-            side="right" if pl[0] else "left"
-            vol=int.from_bytes(pl[1:5],"little")/1000
-            amt=int.from_bytes(pl[5:9],"little")/100
-            s=getattr(p,side); s.volume_l,s.amount_cur=vol,amt
-            await self.events.put({"addr":adr,"side":side,"volume_l":vol,"amount_cur":amt})
-        elif dc==0x03 and len(pl)>=2:
-            side="right" if pl[0] else "left"
-            taken=bool(pl[-1]&0x10)
-            getattr(p,side).nozzle_taken=taken
-            await self.events.put({"addr":adr,"side":side,"nozzle_taken":taken})
+    async def _apply_dc(self, adr: int, dc: int, pl: bytes):
+        pump = store[adr]
+
+        if dc == 0x01:
+            status = pl[0] if pl else 0x00
+            side   = "left"
+            getattr(pump, side).status = PumpStatus(status)
+            await self.events.put({"addr": adr, "side": side, "status": status})
+
+        elif dc == 0x02 and len(pl) >= 9:
+            side  = "right" if pl[0] else "left"
+            vol   = int.from_bytes(pl[1:5], "little") / 1000
+            amt   = int.from_bytes(pl[5:9], "little") / 100
+            s = getattr(pump, side)
+            s.volume_l, s.amount_cur = vol, amt
+            await self.events.put({"addr": adr, "side": side,
+                                   "volume_l": vol, "amount_cur": amt})
+            
+        elif dc == 0x03 and len(pl) >= 2:
+            side  = "right" if pl[0] else "left"
+            taken = bool(pl[-1] & 0x10)
+            getattr(pump, side).nozzle_taken = taken
+            await self.events.put({"addr": adr, "side": side,
+                                   "nozzle_taken": taken})
+
 
 store: Dict[int,PumpState]=defaultdict(PumpState)
