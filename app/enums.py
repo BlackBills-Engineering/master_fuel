@@ -7,9 +7,9 @@ class PumpCmd(IntEnum):
     SUSPEND    = 0x0A
     RESUME     = 0x0B
     SWITCH_OFF = 0x05
-    
+
 class PumpStatus(IntEnum):          # DC1 «RETURN STATUS»
-    IDLE                = 0x00      # ← добавили
+    IDLE                = 0x00      # ← колонка шлёт именно его
     RESET               = 0x01
     AUTHORIZED          = 0x02
     FILLING             = 0x03
