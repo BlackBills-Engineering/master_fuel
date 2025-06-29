@@ -9,11 +9,13 @@ class PumpCmd(IntEnum):
     SWITCH_OFF = 0x05
     PRICE_UPD  = 0x09        # CD-5, понадобился для удобства
 
-class PumpStatus(IntEnum):          # DC-1 «Pump status»
-    NOT_PROGRAMMED       = 0x00
-    RESET                = 0x01
-    AUTHORIZED           = 0x02
-    FILLING              = 0x04
-    FILLING_COMPLETED    = 0x05
-    MAX_REACHED          = 0x06
-    SWITCHED_OFF         = 0x07
+class PumpStatus(IntEnum):
+    IDLE            = 0x00   # сопло повешено
+    RESET           = 0x01
+    AUTHORIZED      = 0x02
+    NOZZLE_OUT      = 0x03   # вынули, но не льёт
+    FILLING         = 0x04
+    FILL_DONE       = 0x05
+    MAX_REACHED     = 0x06
+    SWITCHED_OFF    = 0x07
+
