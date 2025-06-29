@@ -222,21 +222,21 @@ class DartDriver:
                 }
                 cmd = data[0]
                 cmd_name = cmd_codes.get(cmd, f"UNKNOWN_CMD_0x{cmd:02X}")
-                _log.info("  └─ Command: %s (0x%02X)", cmd_name, cmd)
+                _log.info("    Command: %s (0x%02X)", cmd_name, cmd)
                 
         elif trans_type == 0x03:  # CD3 - PRESET VOLUME
             if len(data) >= 4:
                 volume = int.from_bytes(data[:4], 'big')
-                _log.info("  └─ Preset Volume: %d (%.3f L)", volume, volume/1000)
+                _log.info("    Preset Volume: %d (%.3f L)", volume, volume/1000)
                 
         elif trans_type == 0x04:  # CD4 - PRESET AMOUNT  
             if len(data) >= 4:
                 amount = int.from_bytes(data[:4], 'big')
-                _log.info("  └─ Preset Amount: %d (%.2f RUB)", amount, amount/100)
+                _log.info("    Preset Amount: %d (%.2f RUB)", amount, amount/100)
                 
         elif trans_type == 0x05:  # CD5 - PRICE UPDATE
             num_prices = len(data) // 3
-            _log.info("  └─ Price Update for %d nozzles:", num_prices)
+            _log.info("    Price Update for %d nozzles:", num_prices)
             for i in range(num_prices):
                 price_bcd = data[i*3:(i+1)*3]
                 price = self._bcd_to_int(price_bcd) / 100
@@ -244,10 +244,10 @@ class DartDriver:
                 
         elif trans_type == 0x02:  # CD2 - ALLOWED NOZZLES
             nozzles = list(data)
-            _log.info("  └─ Allowed Nozzles: %s", nozzles)
+            _log.info("    Allowed Nozzles: %s", nozzles)
             
         else:
-            _log.info("  └─ Data (%d bytes): %s", len(data), data.hex())
+            _log.info("    Data (%d bytes): %s", len(data), data.hex())
 
     def _bcd_to_int(self, bcd_bytes: bytes) -> int:
         """Конвертация BCD в int"""
@@ -330,7 +330,7 @@ class DartDriver:
                 }
                 status = payload[0]
                 status_name = status_codes.get(status, f"UNKNOWN_STATUS_0x{status:02X}")
-                _log.info("    └─ Status: %s (0x%02X)", status_name, status)
+                _log.info("        Status: %s (0x%02X)", status_name, status)
                 
         elif dc == 0x02:  # DC2 - VOLUME/AMOUNT
             if len(payload) >= 8:
@@ -338,7 +338,7 @@ class DartDriver:
                 amt_bcd = payload[4:8]
                 volume = self._bcd_to_int(vol_bcd) / 1000
                 amount = self._bcd_to_int(amt_bcd) / 100
-                _log.info("    └─ Volume: %.3f L, Amount: %.2f RUB", volume, amount)
+                _log.info("        Volume: %.3f L, Amount: %.2f RUB", volume, amount)
                 
         elif dc == 0x03:  # DC3 - NOZZLE STATUS + PRICE
             if len(payload) >= 4:
@@ -347,7 +347,7 @@ class DartDriver:
                 price = self._bcd_to_int(price_bcd) / 100
                 noz_id = nozio & 0x0F
                 noz_out = bool(nozio & 0x10)
-                _log.info("    └─ Price: %.2f RUB, Nozzle: %d, Out: %s", 
+                _log.info("        Price: %.2f RUB, Nozzle: %d, Out: %s", 
                           price, noz_id, noz_out)
                           
         elif dc == 0x07:  # DC7 - PUMP PARAMS
@@ -356,16 +356,16 @@ class DartDriver:
                 dpamo = payload[23] 
                 dpunp = payload[24]
                 grades = payload[30:45]
-                _log.info("    └─ Decimals: vol=%d, amt=%d, price=%d", dpvol, dpamo, dpunp)
-                _log.info("    └─ Grades: %s", [g for g in grades if g != 0])
+                _log.info("        Decimals: vol=%d, amt=%d, price=%d", dpvol, dpamo, dpunp)
+                _log.info("        Grades: %s", [g for g in grades if g != 0])
                 
         elif dc == 0x09:  # DC9 - PUMP IDENTITY
             if len(payload) >= 5:
                 identity = self._bcd_to_int(payload)
-                _log.info("    └─ Pump Identity: %010d", identity)
+                _log.info("        Pump Identity: %010d", identity)
                 
         else:
-            _log.info("    └─ Data (%d bytes): %s", len(payload), payload.hex())
+            _log.info("        Data (%d bytes): %s", len(payload), payload.hex())
 
 # Singleton
 driver = DartDriver()

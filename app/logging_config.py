@@ -22,7 +22,7 @@ def setup_logging(log_level: str = "DEBUG", log_to_file: bool = True):
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     
-    # Основной форматтер
+    # Основной форматтер без Unicode символов (совместимый с Windows)
     detailed_formatter = logging.Formatter(
         fmt="%(asctime)s.%(msecs)03d [%(name)20s] %(levelname)8s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
@@ -41,18 +41,27 @@ def setup_logging(log_level: str = "DEBUG", log_to_file: bool = True):
     # Очищаем существующие хэндлеры
     root_logger.handlers.clear()
     
-    # Консольный хэндлер
+    # Консольный хэндлер с правильной кодировкой
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)  # В консоль меньше деталей
     console_handler.setFormatter(console_formatter)
+    
+    # Устанавливаем кодировку для Windows
+    if hasattr(console_handler.stream, 'reconfigure'):
+        try:
+            console_handler.stream.reconfigure(encoding='utf-8')
+        except:
+            pass  # Игнорируем ошибки кодировки
+    
     root_logger.addHandler(console_handler)
     
     if log_to_file:
-        # Основной файл лога с ротацией
+        # Основной файл лога с ротацией и UTF-8 кодировкой
         file_handler = logging.handlers.RotatingFileHandler(
             log_dir / "fuel_master.log",
             maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5
+            backupCount=5,
+            encoding='utf-8'  # Явно указываем UTF-8
         )
         file_handler.setLevel(getattr(logging, log_level))
         file_handler.setFormatter(detailed_formatter)
@@ -62,7 +71,8 @@ def setup_logging(log_level: str = "DEBUG", log_to_file: bool = True):
         driver_handler = logging.handlers.RotatingFileHandler(
             log_dir / "driver_communication.log",
             maxBytes=5 * 1024 * 1024,   # 5 MB
-            backupCount=10
+            backupCount=10,
+            encoding='utf-8'
         )
         driver_handler.setLevel(logging.DEBUG)
         driver_handler.setFormatter(detailed_formatter)
@@ -75,7 +85,8 @@ def setup_logging(log_level: str = "DEBUG", log_to_file: bool = True):
         pumpmaster_handler = logging.handlers.RotatingFileHandler(
             log_dir / "pump_transactions.log",
             maxBytes=5 * 1024 * 1024,   # 5 MB
-            backupCount=5
+            backupCount=5,
+            encoding='utf-8'
         )
         pumpmaster_handler.setLevel(logging.INFO)
         pumpmaster_handler.setFormatter(detailed_formatter)
