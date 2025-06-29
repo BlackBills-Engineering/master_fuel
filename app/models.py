@@ -21,5 +21,6 @@ class Event(BaseModel):
     side: Literal["left","right"]
     status: PumpStatus | None = None
     nozzle_taken: bool | None = None
+    nozzle_num: int | None = None
     volume_l: float | None = None
     amount_cur: float | None = None

@@ -5,7 +5,7 @@ from .enums import PumpStatus
 
 class SideState(BaseModel):
     nozzle_taken: bool = False
-    status: PumpStatus = PumpStatus.RESET
+    status: PumpStatus = PumpStatus.PUMP_NOT_PROGRAMMED
     volume_l: float = 0.0
     amount_cur: float = 0.0
     preset_vol: float | None = None

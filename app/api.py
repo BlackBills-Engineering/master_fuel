@@ -34,13 +34,14 @@ async def do_preset(addr: int, body: PresetRq):
     return {"ok": True}
 
 @app.post("/pumps/{addr}/command")
-async def do_command(addr: int, cmd: Literal["reset","stop","suspend","resume","switch_off"]):
+async def do_command(addr: int, cmd: Literal["reset","stop","switch_off","return_status","return_identity","return_filling_info"]):
     mapping = {
-        "reset":     PumpCmd.RESET,
-        "stop":      PumpCmd.STOP,
-        "suspend":   PumpCmd.SUSPEND,
-        "resume":    PumpCmd.RESUME,
-        "switch_off":PumpCmd.SWITCH_OFF,
+        "reset":               PumpCmd.RESET,
+        "stop":                PumpCmd.STOP,
+        "switch_off":          PumpCmd.SWITCH_OFF,
+        "return_status":       PumpCmd.RETURN_STATUS,
+        "return_identity":     PumpCmd.RETURN_PUMP_IDENTITY,
+        "return_filling_info": PumpCmd.RETURN_FILLING_INFO,
     }
     master.command(addr, mapping[cmd])
     return {"ok": True}

@@ -1,0 +1,1057 @@
+MKR 5 PROTOCOL SPECIFICATION
+DART PUMP INTERFACE
+TABLE OF CONTENTS
+1 GENERAL .............................................................................................................. 1
+1.1 Protocol levels ......................................................................................................... 1
+2 PRINCIPLES .......................................................................................................... 2
+2.1 Control of pumps .................................................................................................... 2
+2.1.1 Commands to a pump ............................................................................................. 2
+2.1.2 Pump status ............................................................................................................. 3
+2.1.3 Command and status flow ....................................................................................... 4
+2.2 Data from the pump ................................................................................................ 7
+2.3 Handling volume and amount ................................................................................. 7
+2.4 Handling prices ....................................................................................................... 8
+2.5 Grades and nozzle numbers .................................................................................... 8
+2.6 Preset amount/volume ............................................................................................. 8
+2.7 Pump identity .......................................................................................................... 9
+3 TRANSACTIONS ................................................................................................ 10
+3.1 Transactions from site controller to pump ............................................................ 12
+3.1.1 Command to pump ................................................................................................ 12
+3.1.2 Allowed nozzle numbers ....................................................................................... 12
+3.1.3 Preset volume ........................................................................................................ 13
+3.1.4 Preset amount ........................................................................................................ 13
+3.1.5 Price update ........................................................................................................... 14
+3.1.6 Set pump parameters (*) ....................................................................................... 14
+3.1.7 Set filling type (*) ................................................................................................. 15
+3.1.8 Suspend Request (*) .............................................................................................. 15
+3.1.9 Resume Request (*) .............................................................................................. 16
+3.1.10 Request Volume Total Counters (*) ..................................................................... 16
+3.2 Transactions from pump to site controller ............................................................ 17
+3.2.1 Pump status ........................................................................................................... 17
+3.2.2 Filled volume and amount ..................................................................................... 17
+3.2.3 Nozzle status and filling price ............................................................................... 18
+3.2.4 Alarm Code (*) ..................................................................................................... 19
+3.2.5 Pump Parameters (*) ............................................................................................. 20
+3.2.6 Pump identity ........................................................................................................ 20
+3.2.7 Suspend Reply (*) ................................................................................................. 21
+3.2.8 Resume Reply (*) .................................................................................................. 21
+3.2.9 Volume Total Counters (*) ................................................................................... 22
+4 EXAMPLES .......................................................................................................... 23
+4.1 Clear display when customer pays ........................................................................ 23
+4.2 Clear display at start of filling ............................................................................... 24
+4.3 Price change .......................................................................................................... 25
+5 LIMITATIONS ..................................................................................................... 26
+1
+1 GENERAL
+This document describes the protocol between a Mekser pump, and a site controller at a petrol station. Only the
+protocol above the line protocol is described. From the line protocol, a device address and a buffer with data
+are received. All error handling e.g.
+CRC and parity check is made in the line protocol.
+Each pump has a device address (50H-6FH). A pump shall handle a block if the block is addressed to the
+pump. The test of device address is made in the line protocol.
+The line protocol is described in the document "DART-LINE PROTOCOL
+SPECIFICATION".
+The electronic interface is described in the document "DART-LINE PROTOCOL
+SPECIFICATION" and in the flow chart "DART CONFIGURATION".
+1.1 Protocol levels
+The protocol is divided into 3 levels. Level
+3 Application level.
+Level 2 Line protocol level. Level 1
+Electronic level.
+Level 2 is handling is polling of devices and transport of blocks that are created by level 3. Level 2 cheeks that a
+block is transmitted correctly. The check is made with CRC, parity and block sequence number. If an error
+occurs, retransmission is handled by level 2.
+At level 3 blocks are transmitted between site controller and pumps. A block can contain one or more
+transactions that are specified in this document.
+Example of a block sent on the communication line.
+TRANS DATA
+NO LNG 1 2 ADR CTRL … CRC-1 CRC-2 ETX SF
+Created and
+sent by level
+2.
+Created by level 3. Sent by level 2. Created and sent by level 2.
+2
+2 PRINCIPLES
+2.1 Control of pumps
+2.1.1 Commands to a pump
+The site controller can send the following commands to a pump.
+- RETURN STATUS
+- RETURN PUMP IDENTITY
+- RETURN FILLING INFORMATION
+- RESET
+- AUTHORIZE
+- SUSPEND
+- RESUME
+- STOP
+- SWITCH OFF
+RETURN STATUS:
+The pump shall return status information. This is a global request that will cause the pump to return transaction
+"Pump status" and "Nozzle status and filling price".
+The site controller use this command when a pump is connected the first time or after a communication fault.
+During normal operation the pump sends transaction "Pump status" and transaction "Nozzle status and filling
+price" at change of status.
+RETURN PUMP IDENTITY:
+The pump shall return pump identity in transaction "Pump identity". The site controller will only handle
+pumps that are tested together with the site controller. It is not necessary to use this command in normal
+operation.
+RESET:
+The pump clears the display and variables such as filled volume and filled amount.
+AUTHORIZE:
+Authorize of the pump. The pump shall now be ready for start of filling. The command can come before or
+after a nozzle is taken out.
+SUSPEND:
+This command is used to temporarily stop a filling e.g. when contact with a Vehicle Identification Device is
+lost. It is a command that will stop the filling, but the main pump status will still be AUTHORIZED or
+FILLING.
+RESUME:
+This command is used to reactivate the pump again e.g. when the contact is re-established with a Vehicle
+Identification Device.
+STOP:
+The pump goes to filling completed. If a filling was going on, it is stopped.
+3
+SWITCH OFF:
+Switch off the pump. The command is used when the station is closing or if there is an error in the pump.
+2.1.2 Pump status
+Pump status is sent to the site controller with transaction "Pump status". The pump has
+the following status:
+- PUMP NOT PROGRAMMED
+- RESET
+- AUTHORIZED (SUSPENDED)
+- FILLING (SUSPENDED)
+- FILLING COMPLETED
+- MAX AMOUNT/VOLUME REACHED
+- SWITCHED OFF
+A status change is caused by a command from the site controller or by an action in the pump
+e.g. nozzle in.
+4
+2.1.3 Command and status flow
+In the following table the possible commands in different pump status are listed. Command
+Normally received in status Action RETURN
+STATUS All Return status
+RETURN FILLING
+INFORMATION
+Return filling information
+RESET
+AUTHORIZED (SUSPENDED)
+FILLING (SUSPENDED)
+FILLING COMPLETED
+MAX AMOUNT/VOLUME
+REACHED
+RESET FILLING COMPLETED MAX
+AMOUNT/VOLUME REACHED
+Amount, volume and alarm are
+cleared. The light is switched on.
+AUTHORIZE RESET If a grade is selected and allowed,
+then the pump motor is turned on.
+The pump motor is turned off.
+SUSPEND AUTHORIZED
+FILLING
+RESUME SUSPENDED The pump motor is turned on.
+STOP RESET
+The pump motor is turned off.
+AUTHORIZED (SUSPENDED)
+FILLING (SUSPENDED)
+MAX AMOUNT/VOLUME
+REACHED
+SWITCH OFF All The light and pump motor are
+turned off.
+5
+In the following table the possible status changes are listed.
+From Status To Status Comment
+PUMP NOT PROGRAMMED FILLING COMPLETE The pump is correctly
+programmed and price
+block received.
+RESET AUTHORIZED Command Authorize.
+FILLING COMPLETE Command Stop.
+“ Hardware reset or error.
+SWITCHED OFF Command Switch off.
+AUTHORIZED FILLING Filled volume >= start
+limit.
+SUSPENDED Command Suspend.
+FILLING COMPLETE Command Stop.
+“ Hardware reset or error.
+SWITCHED OFF Command Switch off.
+FILLING SUSPENDED Command Suspend.
+FILLING COMPLETE Nozzle hang-up.
+“ Command Stop.
+“ Hardware reset or error.
+MAX AMOUNT/VOLUME
+Max amount/volume
+REACHED
+reached.
+SWITCHED OFF Command Switch off.
+SUSPENDED AUTHORIZED Command Resume.
+FILLING Command Resume.
+FILLING COMPLETE Nozzle hang-up.
+“ Command Stop.
+“ Hardware reset or error.
+SWITCHED OFF Command Switch off.
+FILLING COMPLETE RESET Command Reset.
+SWITCHED OFF Command Switch off.
+MAX AMOUNT/VOLUME
+REACHED
+RESET Command Reset.
+FILLING COMPLETE Command Stop or nozzle
+replaced.
+SWITCHED OFF Command Switch off.
+SWITCHED OFF RESET Command Reset.
+FILLING COMPLETE Command Stop.
+6
+STATUS CHANGE DIAGRAM
+RESET
+Command STOP
+Hardware error
+Command AUTHORIZE
+Command SUSPEND
+AUTHORIZED
+SUSPENDED
+Command RESUME
+Command STOP Filling Started
+Command SUSPEND
+FILLING Command
+STOP
+Nozzle replaced
+Hardware error SUSPENDED
+Command RESUME
+Max volume/amount reached
+MAX and nozzle replaced
+AMOUNT/VOLUME Command RESET
+Command STOP
+Nozzle replaced
+FILLING
+COMPLETE
+Command RESET
+Pump is programmed
+and price received
+NOT
+PROGRAMMED
+Command SWITCH OFF Command STOP
+SWITCHED OFF
+Command RESET
+7
+2.2 Data from thepump
+Data is sent spontaneously at a change or at a request from the site controller. Spontaneous
+data:
+- Status change
+- Nozzle in/out
+- Select logical nozzle number
+- Change of filled volume or amount
+Pump status
+Pump status is sent to the site controller with transaction "Pump status". The pump
+has the following status:
+- PUMP NOT PROGRAMMED
+- RESET
+- AUTHORIZED (SUSPENDED)
+- FILLING (SUSPENDED)
+- FILLING COMPLETED
+- MAX AMOUNT/VOLUME REACHED
+- SWITCHED OFF
+A status change is caused by a command from the site controller or by an action in the pump
+e.g. nozzle in.
+2.3 Handling volume and amount
+It is important that the display at the site controller has the same value as the display at the pump. The site
+controller does not make any calculations, it takes the volume and amount that is received from the pump and
+put it on the display. The pump sends the data only when a value is changed or if the site controller does request
+it. The data is sent in transaction "Filled volume and amount". The change normally occurs during a filling. Note
+that at reset of volume and amount counters, the transaction is sent with value=0.
+For safety the site controller may request the pump to send transaction "Filled volume and amount" at end of
+filling.
+8
+2.4 Handling prices
+The unit price that shall be used for a filling is sent from the site controller with transaction "Price update". In
+this document it is called filling price. The pump receives one filling price for each nozzle number. If the pump
+has more than one logical nozzle number, there must be prices for all nozzles, otherwise the hole trans is
+ignored. If there are more prices than nozzles, the prices are accepted but the prices without nozzle are ignored.
+The filling price is sent only when the price is changed or if a pump is powered on or zeroized. A zeroized
+pump stays in status “pump not programmed” until a unit price has been received.
+The pump does not accept a new unit price after a filling has started.
+2.5 Grades and nozzle numbers
+The pump shall work only with nozzle number. The site controller handles the connection grade-nozzle
+number.
+In this document 'nozzle number' means logical nozzle number and not a physical nozzle. A blending pump e.g.
+with one nozzle and three grade select buttons has three logical nozzle numbers.
+With transaction "Allowed nozzle numbers" the site controller can select nozzle numbers in a pump that is
+allowed to use for filling. An authorize command is only authorizing allowed nozzle numbers. Normally all
+existing nozzles are allowed. If the same nozzles are allowed at every filling from a pump, it is not necessary to
+send a new transaction for each authorization. The pump shall use the last received information about allowed
+nozzles.
+2.6 Preset amount/volume
+The site controller sends preset volume in transaction "Preset volume" or preset amount in transaction "Preset
+amount". The pump stops the filling when the preset value is reached.
+A preset value is used only during one filling. The value is reset when the pump has done a reset caused by a
+reset command.
+It is possible to send a new preset value during a filling. The pump always use the last received value. If the
+site controller sends preset volume 100 and during filling sends-preset amount 50, the pump stops the filling
+at amount 50. If the amount already is over 50, the filling is stopped immediately.
+The preset value for amount and volume are set back to a default value when the pump receives the
+command RESET.
+If a filling is stopped because of reached preset value, the status sent in transaction "Pump status" will be
+"max amount/volume reached” instead of “filling completed”.
+9
+2.7 Pump identity
+With a command the site controller can request an identity from the pump. The pump returns identity in
+transaction "Pump identity". The identity consists of 10 digits.
+Digit 1-4: Manufacturer identity. The identity has to be received from Wayne/Dresser for use in the
+pump program.
+Digit 5-6: Pump type within one manufacturer. Also this number has to be received from
+Wayne/Dresser.
+Digit 7-10: Program version. Free to use by manufacturers. Digit 1 is
+MSB.
+10
+3 TRANSACTIONS
+A block to or from a pump can have one or more transactions. A transaction can have fixed or variable length.
+A transaction always starts with a byte containing transaction number and a byte containing the length of the
+data in the transaction. If a transaction has fixed length it does not seem necessary to have the length byte. But
+the length byte makes it possible for a program to skip transactions that the program does not recognize.
+The length of the data block is received from the line protocol. All transactions are handled when the sum of
+handled transactions length is equal to the length of the data block.
+Example:
+TRANS LNG 1
+TRANS LNG 1
+:
+DATA n
+Transaction with fix length 1.
+Number of data bytes in the transaction (1). DATA
+Transaction with variable length n.
+Number of data bytes in the transaction (n). DATA
+In the following section also optional transactions are included for completeness. Transactions marked with an
+asterisk (*) are not needed to interface a standard Dart pump and may not even be supported by the pump. They
+are however used in a full Dart implementation for Wayne pumps.
+The following table contains existing transactions. From site
+controller to pump.
+Transaction Comment
+CD1 Command to pump
+CD2 Allowed nozzle numbers
+CD3 Preset volume
+CD4 Preset amount
+CD5 Price updating
+CD6 Reserved
+CD7 -
+“
+-
+CD8 -
+“
+-
+CD9 * Set pump parameters
+CD10 Reserved
+CD11 -
+“
+-
+CD12 -
+“
+-
+CD13 * Filling type CD14
+* Suspend nozzle
+CD15 * Resume nozzle
+CD16 For future standard transactions
+:
+CD100 Application dependent transactions
+Request Volume Total Counters
+CD101 * :
+From pump to site controller.
+Transaction Comment DC1
+Pump status
+DC2 Filled volume, amount
+DC3 Selected nozzle number and nozzle in or out and filling price DC4
+Reserved
+DC5 * Alarm code
+DC6 Reserved
+DC7 * Pump parameters
+DC8 Reserved
+DC9 Pump identity
+DC10 For future standard transactions
+:
+DC14 * Suspended nozzles
+DC15 * Resumed nozzles
+:
+DC100 Application dependent transactions
+DC101 * Volume Total Counters
+:
+3.1 Transactions from site controller to pump
+3.1.1 Command to pump
+Transaction: CD1
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 01H
+LNG 1 Number of data bytes in the transaction
+DCC 1 Pump control command
+DCC 0H-0AH
+Following commands can be sent:
+- 0H RETURN STATUS
+- 2H RETURN PUMP PARAMETERS (*)
+- 3H RETURN PUMP IDENTITY
+- 4H RETURN FILLING INFORMATION
+- 5H RESET
+- 6H AUTHORIZE
+- 8H STOP
+- AH SWITCH OFF
+3.1.2 Allowed nozzle numbers
+Transaction: CD2
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 02H
+LNG 1 Number of data bytes in the transaction
+NOZ1 1 Nozzle number
+:
+NOZn 1
+LNG number of nozzle numbers in the transaction. NOZ
+1-0FH
+NOZ1-n specifies the logical nozzle numbers that is allowed for filling. The transaction is used when a pump is
+authorized. E.g. if nozzle 1-3 is allowed, the transaction contains 1, 2, 3.
+3.1.3 Preset volume
+Transaction: CD3
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 03H
+LNG 1 Number of data bytes in the
+transaction
+VOL 4 Volume
+The volume is sent in packed BCD with MSB in first byte. The pump shall stop automatically when filled
+volume = VOL.
+3.1.4 Preset amount
+Transaction: CD4
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 04H
+LNG 1 Number of data bytes in the transaction
+AMO 4 Amount
+The amount is sent in packed BCD with MSB in first byte. The pump shall stop automatically when filled
+amount = AMO.
+3.1.5 Price update
+Transaction: CD5
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 05H
+LNG 1 Number of data bytes in the transaction
+PRI1 3 Price
+:
+PRIn 3
+LNG = 3*number of prices.
+PRI is the price in packet BCD with MSB in first byte. PRI1 is the price for logical nozzle number 1, PRI2
+is the price for logical nozzle number 2 and so on.
+3.1.6 Set pump parameters (*)
+Transaction: CD9
+Format:
+MNEMONIC
+NUMBER
+OF BYTES
+TRANS
+1 09H
+LNG 1 Number of data bytes in the transaction
+RES 22 Not used
+DPVOL 1 Number of decimals in volume (0-8)
+DPAMO 1 Number of decimals in amount (0-8)
+DPUNP 1 Number of decimals in unit price (0-4)
+RES 5 Not used
+MAMO 4 Maximum amount
+RES 17 Not used
+MAMO is sent in packed BCD with MSB in first byte. The amount is used for delivery limit if CD 3 or CD 4
+is not used.
+Supported only by pumps with full implementation of Dart.
+3.1.7 Set filling type(*)
+Transaction: CD13
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 0DH
+LNG 1 Number of data bytes in the transaction
+FTYPE 1 Filling type
+0 = Cash filling 1 =
+Credit filling
+Supported only by pumps with full implementation of Dart.
+3.1.8 Suspend Request (*)
+Transaction: CD14
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 0EH
+LNG 1 Number of data bytes in the transaction
+NOZ 1 Nozzle number (0-0FH)
+NOZ specifies the logical nozzle number that is suspended from filling. The number is only used for satellite
+pumps and should normally be 0.
+Supported only by pumps with full implementation of Dart.
+3.1.9 Resume Request (*)
+Transaction: CD15
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 0FH
+LNG 1 Number of data bytes in the transaction
+NOZ 1 Nozzle number (0-0FH)
+NOZ specifies the logical nozzle number that is resumed for filling. The number is only used for satellite
+pumps and should normally be 0.
+Supported only by pumps with full implementation of Dart.
+3.1.10 Request Volume Total Counters(*)
+Transaction: CD101
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 65H
+LNG 1 Number of data bytes in the
+transaction
+COUN 1 Volume Total Counter number
+1 = nozzle 1, 2 = nozzle 2, …
+Supported only by pumps with full implementation of Dart.
+3.2 Transactions from pump to site controller
+3.2.1 Pump status
+Transaction: DC1
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 01H
+LNG 1 Number of data bytes in the transaction
+STATUS 1 Pump status
+This transaction is sent by the pump if the status is changed or if the pump receives the command
+'RETURN STATUS’.
+The pump can have the following status:
+0 PUMP NOT PROGRAMMED
+1 RESET
+2 AUTHORIZED
+4 FILLING
+5 FILLING COMPLETED
+6 MAX AMOUNT/VOLUME REACHED
+7 SWITCHED OFF
+3.2.2 Filled volume and amount
+Transaction: DC2
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 02H
+LNG 1 Number of data bytes in the transaction
+VOL 4 Filled volume
+AMO 4 Filled amount
+VOL and AMO are sent in packed BCD. MSB is sent in the first byte.
+This transaction is sent by the pump at change of a value or if the pump receives the command
+RETURN FILLING INFORMATION.
+3.2.3 Nozzlestatusandfillingprice
+Transaction: DC3
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 03H
+LNG 1 Number of data bytes in the transaction
+PRI 3 Filling price
+NOZIO 1
+PRI is the price used by the pump for calculation of filled amount. It is sent in packed BCD, MSB first.
+NOZIO bits 0-3 contain selected nozzle number. NOZIO
+bit 4 contains nozzle in/out information.
+0 = in
+1 = out
+This transaction is sent by the pump if the status is changed or if the pump receives the command
+'RETURN STATUS' or ‘RETURN FILLING INFORMATION’.
+Example:
+NOZIO Meaning
+02H Nozzle 2 selected, nozzle in 12H
+Nozzle 2 selected, nozzle out
+10H No nozzle selected, nozzle out. (This is possible for a blending pump.)
+There must never be more than one selected logical nozzle number. If two nozzles are taken out simultaneously,
+the pump determines which logical nozzle number is selected. The site controller will use the last received
+logical nozzle number.
+3.2.4 Alarm Code (*)
+Transaction: DC5
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 05H
+LNG 1 Number of data bytes in the transaction
+ALARM 1 Alarm code
+1 CPU reset
+3 RAM error
+4 PROM checksum error
+6 Pulser error
+7 Pulser current error 9
+Emergency stop
+A Power failure B
+Pressure lost
+C Blend ratio error D
+Low leak error E High
+leak error
+This transaction is sent by the pump if an alarm is generated or if the pump receives the command
+'RETURN STATUS'.
+Supported only by pumps with full implementation of Dart.
+3.2.5 Pump Parameters(*)
+Transaction: DC7
+Format:
+MNEMONIC
+NUMBER
+OF BYTES
+TRANS
+1 07H
+LNG 1 Number of data bytes in the transaction
+RES 22 Not used
+DPVOL 1 Number of decimals in volume (0-8)
+DPAMO 1 Number of decimals in amount (0-8)
+DPUNP 1 Number of decimals in unit price (0-4)
+RES 5 Not used
+MAMO 4 Maximum amount
+RES 2 Not used
+GRADE 15 Existing grade per nozzle number
+MAMO is sent in packed BCD with MSB in first byte.
+This transaction is sent by the pump if SET PUMP PARAMETERS is received or if the pump receives the
+command 'RETURN PUMP PARAMETERS'.
+Supported only by pumps with full implementation of Dart.
+3.2.6 Pumpidentity
+Transaction: DC9
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 09H
+LNG 1 Number of data bytes in the transaction
+PID 5 Pump identity.
+PID is sent in packed BCD, MSB first.
+The pump sends this transaction if command ‘RETURN PUMP IDENTITY’ is received.
+3.2.7 Suspend Reply (*)
+Transaction: DC14
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 0EH
+LNG 1 Number of data bytes in the transaction
+NOZ 1 Nozzle number (from request).
+The pump sends this transaction if SUSPEND REQUEST is received. Supported only
+by pumps with full implementation of Dart.
+3.2.8 Resume Reply (*)
+Transaction: DC15
+Format:
+MNEMONIC NUMBER
+OF BYTES
+TRANS 1 0FH
+LNG 1 Number of data bytes in the transaction
+NOZ 1 Nozzle number (from request).
+The pump sends this transaction if RESUME REQUEST is received. Supported
+only by pumps with full implementation of Dart.
+3.2.9 Volume Total Counters (*)
+Transaction: DC101
+Format:
+MNEMONIC
+NUMBER
+OF BYTES
+TRANS
+1 65H
+LNG 1 Number of data bytes in the transaction
+COUN 1 Volume Total Counter number
+1 = nozzle 1, 2 = nozzle 2, …
+TOTVOL 5
+Total volume for nozzle
+TOTV1 5 Total volume grade 1
+TOTV2 5 Total volume grade 2 (zero if no blending)
+Total volume counters are sent as packed BCD format with MSB first.
+The pump sends this transaction if REQUEST VOLUME TOTAL COUNTERS is received. Supported only
+by pumps with full implementation of Dart.
+4 EXAMPLES
+4.1 Clear display when customer pays
+Pump display is cleared when the customer pays the filling. Authorize is made when next customer takes out a
+nozzle or selects a grade.
+Transaction
+To disp. To
+centra
+l
+Comment
+CD1
+DC1
+DC3
+CD2
+CD3
+CD1
+The pump is in status FILLING COMPLETE.
+Command RESET, the customer has paid.
+Status RESET.
+Next customer arrives.
+Grade selected.
+Allowed nozzle numbers. Only needed if different from previous filling.
+Preset volume. Note that preset values are set to default by the
+command RESET.
+Command AUTHORIZE.
+Status AUTHORIZED.
+Nozzle out.
+Status FILLING.
+Filled volume and amount.
+DC1
+DC3
+DC1
+DC2
+:
+DC2
+DC3
+DC1
+Nozzle in.
+Status FILLING COMPLETE.
+4.2 Clear display at start of filling
+Pump display is cleared when a filling is started. Authorize is made when the customer pays the filling.
+Transaction
+To disp. To central Comment
+The pump is in status FILLING COMPLETE. Next
+customer arrives.
+DC3 Nozzle out.
+CD1 Command RESET.
+The pump clears the display.
+DC1 Status RESET.
+CD1 Command AUTHORIZE. DC1
+Status AUTHORIZED. DC1
+Status FILLING.
+DC2 Filled volume and amount.
+:
+DC2
+DC3 Nozzle in.
+DC1 Status FILLING COMPLETE.
+4.3 Price change
+If a pump only is working with one filling type, it is not necessary to send out prices for each filling. In this
+example is the price known first then the nozzle is taken out.
+Transaction
+To disp. To
+centra
+l
+Comment
+The pump is in status FILLING COMPLETE.
+Next customer arrives.
+DC3 Nozzle out.
+CD5
+CD1
+Price updating.
+CD2 Allowed nozzle numbers.
+Command RESET.
+DC1
+Status RESET.
+DC3 Grade selected.
+CD2
+CD3 Allowed nozzle numbers. Only needed if different from previous filling.
+Preset volume. Note that preset values must be sent after the
+command
+RESET.
+CD1
+Command AUTHORIZE.
+DC1
+Status AUTHORIZED.
+DC1 Status FILLING.
+DC2 Filled volume and amount.
+:
+DC2
+DC3 Nozzle in.
+DC1 Status FILLING COMPLETE.
+5 LIMITATIONS
+Maximum 32 pumps
+Volume 99999999
+Amount 99999999
+Filling price 999999
+Nozzle number 1-0FH
+Blended products 6
+Number of grades on one
+pump
+15
+MKR5 Protocol
+Serial Communication Specifications
+General description
+This part describes the “MKR5” communications interface to dispensers for single or multiple hose aplications. This
+interface, which employs a current loop as the data transmission medium, defines allowed states for pumps/
+dispensers, allowed state transitions, and the commands and data that may be transmitted and received by dispensers
+and the controller.
+The standard data link is based on a master/slave relationship, where the master polls the slaves. If the master wants to
+send data to a slave, it sends a block with data instead of a poll. if the slave wants to send data it answers with data on
+a poll. Half duplex is used.
+Data format
+Data transfer :
+Bit rate :
+Data bits :
+Stop bits :
+Parity :
+Asynchronous
+9600 / 19200 bits per second
+8
+1
+Odd
+Note :
+A MARK corresponds to loop current “ON” (45mA), a SPACE corresponds to loop current “OFF” (0 mA).
+MKR5 protocol shall not be baud-rate dependent. A baud rate of 19200 shall be possible, alternatively 9600, if distance and type
+of wiring are restrictive.
+Interface requirements
+Explosion proofing :
+As fuel dispensers are located in a hazardous area, mechanical and electrical components of the interface, and its
+installation and service must satisfy relevant hazardous area equipment standards.
+Cable characteristics :
+Current loop cabling should satisfy the following requirements :
+Insulation 500 Vdc (min.)
+Loop length 400 meters (max.)
+Loop resistance 10 Ohms (max.)
+Input inductance 100 uH (max. at any terminals)
+Input capacitance 10 nF (max. at any terminals)
+while a separate twisted pair should be regarded as the ideal cabling solution, acceptable performance is usually
+obtained from non-twisted pairs in the same conduit (or even the same sheath) as pump/dispenser power and control
+cables.
+Voltage and Current levels :
+Loop current Open circuit voltage Note 1:
+The maximum allowable voltage drop across any loop tranceiver (either in a pump/dispenser or a controller) at a loop
+current of 45mA is 2.0 Volts.
+Note 2:
+While common mode voltages are likely to have little effect on data integrity, common mode voltage levels should be
+below 50Vdc to minimise personnel and property hazards.
+45 mA +/- 5%
+24 Vdc +/- 5%
+Message structure
+Created and sent by
+layer 2
+HEX HEX 1-byte 1-byte SD Created by layer 3.
+Sent by layer 2
+HEX HEX BCD HEX HEX BCD 1-byte 1-byte Variable size 1-byte 1-byte Variable size HEX HEX HEX HEX
+1-byte 1-byte 1-byte 1-byte
+ADR CTRL OPC Data block-1 SD OPC Data block-n CRC-L CRC-H Slave Control Size of
+Adr Data
+Operation
+code
+Data Size of
+Data
+Operation
+code
+Data
+CRC
+LSB
+CRC
+MSB
+Created and sent by
+layer 2
+ETX SF
+End of text Stop flag
+(FAh)
+Address
+bits
+7
+6
+5
+4
+3
+2
+1
+0
+Control byte
+7
+6
+CRC-16 calculated from
+ADR to last byte of data.
+CRC initialized to 0000h.
+(Recalculated CRC from
+ADR to CRC-H must be
+0000h)
+50h CRC no include FAh
+51h incremented CRC-L
+52h incremented CRC-H
+53h incremented CRC-L, CRC-H
+00 General call
+01-08h Current loop
+01-20h RS485
+01-3Fh RF Modem
+bits
+1 Master
+0 Slave
+5
+4
+3
+2
+1
+0
+TX#
+Block
+sequence
+number
+3 2 0 Always zero
+MASTER CONTROLS
+1 0001
+2 0010
+3 0011
+bits
+1
+SLAVE CONTROLS 2
+EOT
+1 0001 3
+2 0010 4
+ACK
+3 0011
+NACK
+4 0100
+DATA
+Operation code
+7 6 5 4 NOZZLE NO
+0001 0010 0011 0100 Nozzle-1
+Nozzle-2
+Nozzle-3
+Nozzle-4
+*F5h = IAP (In Aplication Programming) Mode
+1 0
+POOL
+ACK
+NACK
+4 0100 ACKPOOL
+5 0101 MASTER COMMANDS
+DATA
+SLAVE COMMANDS
+0 0000
+1 0001
+2 0010
+3 0011
+4 0100
+5 0101
+6 0110
+7 0111
+8 1000
+9 1001
+Return Status
+Reset Nozzle
+Authorize Nozzle
+Pause Delivery
+Resume Delivery
+Return Filling Info
+Return Totalizer
+Price Update
+Preset Amount
+Preset Volume
+0 0000
+1 0001
+2 0010
+3 0011
+Nozzle Status
+Error Code
+Filling Info
+Totalizer
+Note 1 :
+The master has one independent TX# for each slave. Each slave has one TX#. When data is sent from the master or
+the slave a new TX# is generated for each new data block. The TX# is then returned from the master or the slave in
+ACK, NAK, EOT or ACKPOLL. Slave answering EOT at POLL contains 0 in TX#. TX# is initiated to 0 after restart
+of protocol and then incremented by one for each succesfully transmitted data block. TX# wraps around to 1 after Fh.
+Note 2 :
+Transaction buffer size is aplication dependent. However, maximum 128 bytes including control characters.
+Different slaves can have different buffer size.
+Note 3 :
+MKR5 protocol must provide for reliable data transfer.
+Error checking to be implemented by CRC-16 (CCITT). Parity checking is required on each byte.
+Note 4 :
+The protocol is divided into 3 layers.
+Layer 3 Application layer.
+Layer 2 Line protocol layer.
+Layer 1 Electronic layer.
+Layer 2 is handling is polling of devices and transport of blocks that are created by layer 3. Layer 2 checks that a block is
+transmitted correctly. The check is made with CRC, parity and block sequence number. If an error occurs, retransmission
+is handled by layer 2.
+At layer 3 blocks are transmitted between Master and Slave. A block can contain one or more transactions that are
+specified in this part .
+POOL
+ADR CTRL SF
+ACK
+ADR CTRL SF
+NACK
+ADR CTRL SF
+ACKPOOL
+ADR CTRL SF
+DATA
+ADR CTRL Return Nozzle Status
+Reset Nozzle
+Authorize Nozzle
+Pause Delivery
+Resume Delivery
+Return Filling Info
+Return Totalizer
+Price Update
+Preset Amount
+Preset Volume
+Disable Nozzle
+Stop Nozzle
+Eot
+ADR CTRL SF
+Ack
+ADR CTRL SF
+Nack
+ADR CTRL SF
+DATA
+ADR CTRL Nozzle Status
+Error Code
+Filling Info
+Totalizer
+Data Block SD OPC
+SD OPC
+SD OPC
+SD OPC
+SD OPC
+SD OPC
+SD OPC
+SD OPC SD OPC SD OPC SD OPC
+SD OPC
+Data Block SD OPC SD OPC SD OPC SD OPC Master Transactions
+CRC-L CRC-H ETX SF
+Price (4-Byte)
+Amount (4-Byte)
+Volume (4-Byte)
+Slave Transactions
+CRC-L CRC-H ETX SF
+STA
+ERR
+STA Amount (4-Byte) Volume (4-Byte)
+STA Amount (6-Byte) Volume (6-Byte)
+STA (Nozzle Status) 0000 Idle
+bits
+7
+6
+5
+4
+3
+2
+1
+0
+0001 Ready for Delivery
+0010 Reseted
+0011 Authorized
+0100 Delivery (filling)
+0101 Paused
+0110 Nozzle disabled
+0111 Nozzle Stopped
+1000 Not programmed
+0 Nozzle off
+1 Nozzle on
+0 RF-TAG flag (no tag sensed)
+1 RF-TAG flag (tag sensed)
+0 Error flag (no error)
+1 Error flag (error)
+0 Allways zero
+Possible answer altenatives
+MASTER SLAVE
+POLL
+EOT (nothing to send)
+POLL
+DATA
+ACK
+POLL
+DATA
+NAK
+DATA
+ACKPOLL
+EOT (nothing to send)
+DATA
+ACK
+DATA
+NAK
+DATA
+ACK
+POLL
+EOT (nothing to send)
+DATA
+No answer (parity or CRC error)
+Error Recovery
+Error recovery is done when the expected block sequence number does not match the real one. It is done by both the master and the
+slave. This is a listing of all different situations when error recovery should be done. The TX#-check should be done in the
+following sequence.
+1. TX# = tx Last received TX#. The transmitting unit did not get my last ACK. Skip data and answer ACK. Note that this
+must be done also when TX# = 0.
+2. TX# = 0 3. TX# <> tx The transmitting unit has been restarted. Initiate the expected TX# to 0, accept data and send ACK.
+Expected. If expected TX# = 0 this means that actual unit has been restarted and the expected TX# should be sent
+to the one just received. If so accept data and send ACK. Otherwise another error has occurred and the block
+should be answered with NAK.
+NAK is sent if TX#-error is found in received data. The slave shall not answer at parity error or CRC-error.
+The unit transmitting data has the responsibility to restart the communication procedure when NAK has been received 3 times for
+identical message.
+Timing
+Each unit must be capable to receive characters at 19200 / 9600 baud without delays between characters. The master controls the
+timing. The slave must respond to a poll or data within 25 ms, i.e. transmit the first character after a complete poll or data. The slave
+must be capable to receive an ACK and a poll transmitted from the master as one continuous byte stream (two lines 3 bytes). In this
+case ACK and poll are for two different device addresses. If ACK and poll are for the same device then ACKPOLL is sent as one
+message (3 bytes).
