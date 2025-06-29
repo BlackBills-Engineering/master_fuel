@@ -55,16 +55,33 @@ class DartDriver:
         _log.debug("TX %s", frame.hex())
 
         with self._lock:
+            # Clear input buffer first
+            self._ser.reset_input_buffer()
+            
             self._ser.write(frame); self._ser.flush()
+            
+            # Give a small delay to avoid reading our own echo immediately
+            time.sleep(0.010)  # 10ms delay
 
             start = time.time(); buf = bytearray(); last_rx = start
             GAP = 0.020                                # 20 мс «тишина»
+            echo_detected = False
+            
             while time.time() - start < timeout:
                 chunk = self._ser.read(self._ser.in_waiting or 1)
                 if chunk:
                     buf += chunk; last_rx = time.time()
+                    
+                    # Check if we're receiving our own echo
+                    if not echo_detected and len(buf) >= len(frame):
+                        if buf[:len(frame)] == frame:
+                            _log.debug("Echo detected, removing from buffer")
+                            buf = buf[len(frame):]
+                            echo_detected = True
+                            
                 elif buf.endswith(b"\x03\xfa") and time.time()-last_rx >= GAP:
                     break
+                    
             _log.debug("RX %s", buf.hex())
             return bytes(buf)
 

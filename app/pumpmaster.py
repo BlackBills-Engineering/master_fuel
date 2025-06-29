@@ -72,45 +72,93 @@ class PumpMaster:
         while True:
             for adr in self.addr_range:
                 await self._poll_one(adr)
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.5)  # Increased from 0.25 to give pump more time
 
     async def _initial(self):
+        log.info("Starting initial pump discovery...")
         for adr in self.addr_range:
+            log.info(f"Discovering pump at address 0x{adr:02X}")
             await self._poll_one(adr)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)  # Increased from 0.1
 
     async def _poll_one(self, adr:int):
-        raw = await asyncio.get_running_loop().run_in_executor(None, hw.cd1, adr-0x50, 0x00)
-        if raw:
-            await self._parse(raw)
+        try:
+            log.debug(f"Polling pump at address 0x{adr:02X}")
+            raw = await asyncio.get_running_loop().run_in_executor(None, hw.cd1, adr-0x50, 0x00)
+            
+            if raw:
+                log.debug(f"Received {len(raw)} bytes from 0x{adr:02X}: {raw.hex()}")
+                
+                # Check if response is empty or just echo
+                if len(raw) == 0:
+                    log.warning(f"Empty response from pump 0x{adr:02X}")
+                    return
+                    
+                await self._parse(raw)
+            else:
+                log.warning(f"No response from pump at address 0x{adr:02X}")
+                # Try to send a different command to see if pump is responsive
+                log.debug(f"Trying pump identity request to 0x{adr:02X}")
+                identity_raw = await asyncio.get_running_loop().run_in_executor(None, hw.cd1, adr-0x50, 0x03)
+                if identity_raw:
+                    log.info(f"Pump 0x{adr:02X} responded to identity request: {identity_raw.hex()}")
+                    await self._parse(identity_raw)
+                else:
+                    log.error(f"Pump 0x{adr:02X} not responding to any commands")
+                    
+        except Exception as e:
+            log.error(f"Error polling pump 0x{adr:02X}: {e}")
 
     # ---------- parse frame ----------
     async def _parse(self, fr:bytes):
+        log.debug(f"Parsing frame: {fr.hex()}")
+        
         if len(fr)==6 and fr.endswith(b"\x03\xfa"):   # ACK
+            log.debug("Received ACK frame")
             return
+            
         if fr and fr[0]!=0x02:
             fr=b"\x02"+fr                             # add STX
-        if len(fr)<8 or fr[-1]!=0xFA:
+            log.debug(f"Added STX, frame now: {fr.hex()}")
+            
+        if len(fr)<8:
+            log.warning(f"Frame too short: {len(fr)} bytes")
             return
-        if crc16(fr[1:-4])!=int.from_bytes(fr[-4:-2],"little"):
+            
+        if fr[-1]!=0xFA:
+            log.warning(f"Invalid SF byte: 0x{fr[-1]:02X}")
+            return
+            
+        # Check CRC
+        expected_crc = crc16(fr[1:-4])
+        received_crc = int.from_bytes(fr[-4:-2],"little")
+        if expected_crc != received_crc:
+            log.warning(f"CRC mismatch: expected 0x{expected_crc:04X}, got 0x{received_crc:04X}")
             return
 
         adr  = fr[1]
         ln   = fr[4]
         data = fr[5:5+ln]
+        
+        log.debug(f"Frame from 0x{adr:02X}, data length: {ln}, data: {data.hex()}")
 
         while len(data)>=2:
             dc,lng = data[0],data[1]
-            if len(data)<2+lng: break
+            if len(data)<2+lng: 
+                log.warning(f"Incomplete transaction: DC={dc:02X}, expected {lng} bytes, got {len(data)-2}")
+                break
             pl,data = data[2:2+lng], data[2+lng:]
+            log.debug(f"Processing transaction DC{dc:02X} with {lng} bytes payload: {pl.hex()}")
             await self._handle_dc(adr, dc, pl)
 
     async def _handle_dc(self, adr:int, dc:int, pl:bytes):
+        log.debug(f"Handling DC{dc:02X} from address 0x{adr:02X} with payload: {pl.hex()}")
         p = store[adr]                       # ← общий store из state.py
 
-        # STATUS
+        # STATUS (DC1)
         if dc==0x01:
             code = pl[0] if pl else 0x00
+            log.debug(f"Status update: pump 0x{adr:02X} status = 0x{code:02X}")
             p.left.status = PumpStatus(code) if code in PumpStatus._value2member_map_ else PumpStatus.PUMP_NOT_PROGRAMMED
             await self.events.put({"addr":adr,"side":"left","status":code})
 
@@ -119,9 +167,11 @@ class PumpMaster:
             # According to docs: VOL(4 bytes) + AMO(4 bytes) in packed BCD
             vol_bcd = pl[0:4]
             amt_bcd = pl[4:8]
+            log.debug(f"Volume BCD: {vol_bcd.hex()}, Amount BCD: {amt_bcd.hex()}")
             # Convert from packed BCD to float
             vol = self._bcd_to_float(vol_bcd) / 1000  # Volume in liters
             amt = self._bcd_to_float(amt_bcd) / 100   # Amount in currency units
+            log.debug(f"Converted: Volume = {vol} L, Amount = {amt}")
             # For now, assume left side (you may need to track this differently)
             side = "left"
             s = getattr(p, side)
@@ -139,7 +189,12 @@ class PumpMaster:
             nozzle_num = nozio & 0x0F  # bits 0-3
             nozzle_out = bool(nozio & 0x10)  # bit 4
             
+            log.debug(f"Nozzle status: num={nozzle_num}, out={nozzle_out}, price_bcd={price_bcd.hex()}")
+            
             # For now, assume left side (you may need to track nozzle mapping)
             side = "left"
             getattr(p, side).nozzle_taken = nozzle_out
             await self.events.put({"addr":adr,"side":side,"nozzle_taken":nozzle_out,"nozzle_num":nozzle_num})
+            
+        else:
+            log.warning(f"Unknown or malformed transaction: DC{dc:02X} with {len(pl)} bytes payload")
