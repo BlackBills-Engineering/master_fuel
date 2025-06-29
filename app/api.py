@@ -1,36 +1,40 @@
 import asyncio, uvicorn, logging
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from typing import Literal
+
+logging.basicConfig(
+    level=logging.DEBUG,       # ← теперь видим всё
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+
 from .pumpmaster import PumpMaster
 from .state      import store
 from .models     import PresetRq, PumpSnapshot, Event
 from .enums      import PumpCmd
 
-logging.basicConfig(level=logging.INFO)
+app    = FastAPI(title="FuelMaster API", version="3.0.0")
+master = PumpMaster()          # addr 0x50 берётся из ENV
 
-app     = FastAPI(title="FuelMaster API", version="2.1.0")
-master  = PumpMaster()
-
-# ---------- lifecycle ----------
+# ────────── lifecycle
 @app.on_event("startup")
 async def _run_poller():
     asyncio.create_task(master.poll_loop())
 
-# ---------- REST ----------
-@app.get("/pumps", response_model=list[PumpSnapshot],
-         summary="Снимок состояния всех колонок")
+# ────────── REST
+@app.get("/pumps", response_model=list[PumpSnapshot])
 async def get_pumps():
-    return [PumpSnapshot(addr=a, **p.model_dump()) for a,p in store.items()]
+    return [PumpSnapshot(addr=a, **p.model_dump()) for a, p in store.items()]
 
-@app.post("/pumps/{addr}/preset", summary="Пресет + AUTHORIZE")
-async def do_preset(addr:int, body:PresetRq):
-    master.preset(addr, body.side=="right", body.volume_l, body.amount_cur)
-    return {"ok":True}
+@app.post("/pumps/{addr}/preset")
+async def do_preset(addr: int, body: PresetRq):
+    try:
+        master.authorize(addr, body.volume_l, body.amount_cur)
+    except AttributeError:      # если вдруг метод назван иначе
+        raise HTTPException(500, "PumpMaster has no 'authorize' method")
+    return {"ok": True}
 
-@app.post("/pumps/{addr}/command",
-          summary="Команда (reset / stop / suspend / resume / switch_off)")
-async def do_command(addr:int,
-                     cmd:Literal["reset","stop","suspend","resume","switch_off"]):
+@app.post("/pumps/{addr}/command")
+async def do_command(addr: int, cmd: Literal["reset","stop","suspend","resume","switch_off"]):
     mapping = {
         "reset":     PumpCmd.RESET,
         "stop":      PumpCmd.STOP,
@@ -39,11 +43,11 @@ async def do_command(addr:int,
         "switch_off":PumpCmd.SWITCH_OFF,
     }
     master.command(addr, mapping[cmd])
-    return {"ok":True}
+    return {"ok": True}
 
-# ---------- WebSocket ----------
+# ────────── WebSocket
 @app.websocket("/ws")
-async def ws_endpoint(ws:WebSocket):
+async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     forward = asyncio.create_task(_forward_events(ws))
     try:
@@ -57,6 +61,5 @@ async def _forward_events(ws):
         ev = await master.events.get()
         await ws.send_json(Event(**ev).model_dump())
 
-# ---------- run via «python app.api» ----------
 if __name__ == "__main__":
-    uvicorn.run("app.api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.api:app", host="0.0.0.0", port=8000, reload=True, log_level="debug")
