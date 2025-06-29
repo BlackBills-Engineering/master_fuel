@@ -74,26 +74,37 @@ class PumpMaster:
             pl,data = data[2:2+lng], data[2+lng:]
             await self._handle_dc(adr, dc, pl)
 
-    async def _handle_dc(self, adr:int, dc:int, pl:bytes):
-        p = store[adr]                       # ← общий store из state.py
+    async def _handle_dc(self, adr: int, dc: int, pl: bytes):
+        p = store[adr]
 
-        # STATUS
-        if dc==0x01:
-            code = pl[0] if pl else 0x00
-            p.left.status = PumpStatus(code) if code in PumpStatus._value2member_map_ else PumpStatus.IDLE
-            await self.events.put({"addr":adr,"side":"left","status":code})
+        # ---- STATUS (DC‑1) -----------------------------------------
+        if dc == 0x01 and len(pl) >= 2:
+            side  = "right" if pl[0] else "left"
+            code  = pl[1]
+            getattr(p, side).status = (
+                PumpStatus(code)
+                if code in PumpStatus._value2member_map_ else PumpStatus.IDLE
+            )
+            await self.events.put(
+                {"addr": adr, "side": side, "status": code}
+            )
 
-        # VOL / AMT
-        elif dc==0x02 and len(pl)>=9:
-            side="right" if pl[0] else "left"
-            vol=int.from_bytes(pl[1:5],"little")/1000
-            amt=int.from_bytes(pl[5:9],"little")/100
-            s=getattr(p,side); s.volume_l,s.amount_cur=vol,amt
-            await self.events.put({"addr":adr,"side":side,"volume_l":vol,"amount_cur":amt})
+        # ---- VOLUME / AMOUNT (DC‑2) --------------------------------
+        elif dc == 0x02 and len(pl) >= 9:
+            side = "right" if pl[0] else "left"
+            vol  = int.from_bytes(pl[1:5], "little") / 1000
+            amt  = int.from_bytes(pl[5:9], "little") / 100
+            s = getattr(p, side)
+            s.volume_l, s.amount_cur = vol, amt
+            await self.events.put(
+                {"addr": adr, "side": side, "volume_l": vol, "amount_cur": amt}
+            )
 
-        # NOZZLE
-        elif dc==0x03 and len(pl)>=2:
-            side="right" if pl[0] else "left"
-            taken=bool(pl[-1]&0x10)
-            getattr(p,side).nozzle_taken=taken
-            await self.events.put({"addr":adr,"side":side,"nozzle_taken":taken})
+        # ---- NOZZLE (DC‑3) -----------------------------------------
+        elif dc == 0x03 and len(pl) >= 2:
+            side  = "right" if pl[0] else "left"
+            taken = bool(pl[1] & 0x10)          # ✔ используем второй байт
+            getattr(p, side).nozzle_taken = taken
+            await self.events.put(
+                {"addr": adr, "side": side, "nozzle_taken": taken}
+            )
