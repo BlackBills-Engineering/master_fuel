@@ -1,7 +1,13 @@
 from pydantic import BaseModel, Field, conint, confloat
-from typing import Literal
+from typing import Literal, Dict
 from .state import SideState
 from .enums import PumpCmd, PumpStatus
+
+class NozzleInfo(BaseModel):
+    number: int
+    taken: bool = False
+    selected: bool = False
+    price: float = 0.0
 
 class PresetRq(BaseModel):
     side: Literal["left","right"]
@@ -15,6 +21,7 @@ class PumpSnapshot(BaseModel):
     addr: conint(ge=0)
     left:  SideState
     right: SideState
+    all_nozzles: Dict[int, NozzleInfo] = {}
 
 class Event(BaseModel):
     addr: int
@@ -22,5 +29,7 @@ class Event(BaseModel):
     status: PumpStatus | None = None
     nozzle_taken: bool | None = None
     nozzle_num: int | None = None
+    nozzle_price: float | None = None
+    nozzle_selected: bool | None = None
     volume_l: float | None = None
     amount_cur: float | None = None

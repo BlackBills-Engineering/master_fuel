@@ -25,6 +25,24 @@ async def _run_poller():
 async def get_pumps():
     return [PumpSnapshot(addr=a, **p.model_dump()) for a, p in store.items()]
 
+@app.get("/pumps/{addr}/nozzles")
+async def get_pump_nozzles(addr: int):
+    """Get all nozzles for a specific pump"""
+    nozzles = master.get_all_nozzles(addr)
+    return {"addr": addr, "nozzles": nozzles}
+
+@app.post("/pumps/{addr}/discover-nozzles")
+async def discover_pump_nozzles(addr: int):
+    """Actively discover all nozzles on a pump"""
+    nozzles = await master.discover_nozzles(addr)
+    return {"addr": addr, "discovered_nozzles": nozzles}
+
+@app.post("/pumps/{addr}/allowed-nozzles")
+async def set_allowed_nozzles(addr: int, nozzle_numbers: list[int]):
+    """Set which nozzles are allowed for filling"""
+    master.set_allowed_nozzles(addr, nozzle_numbers)
+    return {"ok": True, "addr": addr, "allowed_nozzles": nozzle_numbers}
+
 @app.post("/pumps/{addr}/preset")
 async def do_preset(addr: int, body: PresetRq):
     try:

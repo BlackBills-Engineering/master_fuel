@@ -66,6 +66,68 @@ class PumpMaster:
     def command(self, addr:int, dcc:int):
         asyncio.get_running_loop().run_in_executor(None, hw.cd1, addr-0x50, dcc)
 
+    async def discover_nozzles(self, addr: int) -> Dict[int, Dict]:
+        """Discover all nozzles on a pump by requesting pump parameters"""
+        log.info(f"Discovering nozzles for pump 0x{addr:02X}")
+        
+        # Try to get pump parameters (DC7 response)
+        try:
+            raw = await asyncio.get_running_loop().run_in_executor(
+                None, hw.cd1, addr-0x50, 0x02  # RETURN_PUMP_PARAMS
+            )
+            if raw:
+                await self._parse(raw)
+        except Exception as e:
+            log.warning(f"Could not get pump parameters for 0x{addr:02X}: {e}")
+        
+        # Request current status to get nozzle information
+        try:
+            raw = await asyncio.get_running_loop().run_in_executor(
+                None, hw.cd1, addr-0x50, 0x00  # RETURN_STATUS
+            )
+            if raw:
+                await self._parse(raw)
+        except Exception as e:
+            log.warning(f"Could not get status for 0x{addr:02X}: {e}")
+        
+        # Return discovered nozzles
+        pump_state = store[addr]
+        nozzles_info = {}
+        for nozzle_num, nozzle_state in pump_state.all_nozzles.items():
+            nozzles_info[nozzle_num] = {
+                "number": nozzle_state.number,
+                "taken": nozzle_state.taken,
+                "selected": nozzle_state.selected,
+                "price": nozzle_state.price
+            }
+        
+        log.info(f"Discovered {len(nozzles_info)} nozzles for pump 0x{addr:02X}: {list(nozzles_info.keys())}")
+        return nozzles_info
+
+    def get_all_nozzles(self, addr: int) -> Dict[int, Dict]:
+        """Get all currently known nozzles for a pump"""
+        pump_state = store[addr]
+        nozzles_info = {}
+        for nozzle_num, nozzle_state in pump_state.all_nozzles.items():
+            nozzles_info[nozzle_num] = {
+                "number": nozzle_state.number,
+                "taken": nozzle_state.taken,
+                "selected": nozzle_state.selected,
+                "price": nozzle_state.price
+            }
+        return nozzles_info
+
+    def set_allowed_nozzles(self, addr: int, nozzle_numbers: list[int]):
+        """Set which nozzles are allowed for filling (CD2 transaction)"""
+        log.info(f"Setting allowed nozzles for pump 0x{addr:02X}: {nozzle_numbers}")
+        
+        # Build CD2 transaction
+        cd2_data = [0x02, len(nozzle_numbers)] + nozzle_numbers
+        
+        asyncio.get_running_loop().run_in_executor(
+            None, hw.transact, addr, [bytes(cd2_data)], 1.0
+        )
+
     # ---------- poll ----------
     async def poll_loop(self):
         await self._initial()
@@ -189,12 +251,61 @@ class PumpMaster:
             nozzle_num = nozio & 0x0F  # bits 0-3
             nozzle_out = bool(nozio & 0x10)  # bit 4
             
-            log.debug(f"Nozzle status: num={nozzle_num}, out={nozzle_out}, price_bcd={price_bcd.hex()}")
+            # Convert price from BCD
+            price = self._bcd_to_float(price_bcd) / 100 if len(price_bcd) == 3 else 0.0
             
-            # For now, assume left side (you may need to track nozzle mapping)
+            log.debug(f"Nozzle status: num={nozzle_num}, out={nozzle_out}, price={price}, price_bcd={price_bcd.hex()}")
+            
+            # Update pump's nozzle information
+            from .state import NozzleState
+            nozzle_state = NozzleState(
+                number=nozzle_num,
+                taken=nozzle_out,
+                selected=(nozzle_num > 0),  # nozzle_num > 0 means it's selected
+                price=price
+            )
+            
+            # Store in all_nozzles for this pump
+            p.all_nozzles[nozzle_num] = nozzle_state
+            
+            # For now, assume left side (you may need to map nozzles to sides based on your setup)
             side = "left"
-            getattr(p, side).nozzle_taken = nozzle_out
-            await self.events.put({"addr":adr,"side":side,"nozzle_taken":nozzle_out,"nozzle_num":nozzle_num})
+            side_state = getattr(p, side)
+            
+            # Update side state
+            side_state.nozzle_taken = nozzle_out
+            if nozzle_num > 0:
+                side_state.selected_nozzle = nozzle_num
+                side_state.nozzles[nozzle_num] = nozzle_state
+            
+            await self.events.put({
+                "addr": adr,
+                "side": side,
+                "nozzle_taken": nozzle_out,
+                "nozzle_num": nozzle_num,
+                "nozzle_price": price,
+                "nozzle_selected": nozzle_num > 0
+            })
+            
+        # PUMP PARAMETERS (DC7) - Contains nozzle/grade information
+        elif dc==0x07 and len(pl)>=50:
+            log.debug(f"Received pump parameters: {pl.hex()}")
+            # According to docs: lots of parameters including GRADE info at the end
+            # GRADE (15 bytes) - existing grade per nozzle number
+            if len(pl) >= 50:
+                grade_data = pl[35:50]  # 15 bytes starting at offset 35
+                log.debug(f"Grade data: {grade_data.hex()}")
+                
+                # Each byte represents a grade for nozzle 1, 2, 3, etc.
+                for nozzle_num, grade in enumerate(grade_data, 1):
+                    if grade > 0:  # Non-zero means this nozzle exists
+                        log.debug(f"Nozzle {nozzle_num} has grade {grade}")
+                        from .state import NozzleState
+                        if nozzle_num not in p.all_nozzles:
+                            p.all_nozzles[nozzle_num] = NozzleState(number=nozzle_num)
+                        
+                        # Update existing nozzle state
+                        p.all_nozzles[nozzle_num].number = nozzle_num
             
         else:
             log.warning(f"Unknown or malformed transaction: DC{dc:02X} with {len(pl)} bytes payload")
