@@ -1,7 +1,5 @@
 """
-driver.py – слой L1 + L2 DART (MKR‑5)
-* формирует/парсит STX … CRC ETX SF
-* имеет активный .transact()  и пассивный reader‑поток
+MKR‑5 L1+L2 driver ‒ одна нить читает, остальные только пишут.
 """
 
 from __future__ import annotations
@@ -18,8 +16,8 @@ BYTESIZE    = _cfg.bytesize
 PARITY      = {"O": serial.PARITY_ODD, "E": serial.PARITY_EVEN, "N": serial.PARITY_NONE}[_cfg.parity]
 STOPBITS    = _cfg.stopbits
 TIMEOUT     = _cfg.timeout
-CRC_POLY    = _cfg.crc_poly     # обычно 0x1021
-CRC_INIT    = _cfg.crc_init     # обычно 0xFFFF
+CRC_POLY    = _cfg.crc_poly
+CRC_INIT    = _cfg.crc_init
 
 logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -32,8 +30,7 @@ class DartTrans:
     CD4 = 0x04
 
 
-def crc16(data: bytes) -> int:
-    """CRC‑16 CCITT (init = CRC_INIT)."""
+def _crc16(data: bytes) -> int:
     crc = CRC_INIT
     for b in data:
         crc ^= b << 8
@@ -53,10 +50,11 @@ class DartDriver:
         self._seq  = 0x00
         _log.info("Serial open %s @ %d", SERIAL_PORT, BAUDRATE)
 
-    # ────────── активная транзакция ───────────────────────────
-    def transact(self, addr: int, blocks: List[bytes], timeout: float = 1.0) -> bytes:
+    # ────────── ТОЛЬКО запись (по‑желанию чтение) ─────────────
+    def transact(self, addr: int, blocks: List[bytes],
+                 timeout: float = 1.0, read: bool = False) -> bytes | None:
         """
-        Сформировать и послать фрейм, затем прочитать ВСЁ до «тишины» GAP.
+        Формирует кадр и пишет. Если read=True ‒ собирает ответ до GAP.
         """
         frame = self._build_frame(addr, blocks)
         _log.debug("TX %s", frame.hex())
@@ -65,10 +63,13 @@ class DartDriver:
             self._ser.write(frame)
             self._ser.flush()
 
+            if not read:
+                return None     # запись «в один конец»
+
             start   = time.time()
             buf     = bytearray()
             last_rx = start
-            GAP     = 0.050        # 50 мс «тишина» — конец пакета
+            GAP     = 0.050     # 50 мс тишины ‒ конец
 
             while time.time() - start < timeout:
                 chunk = self._ser.read(self._ser.in_waiting or 1)
@@ -82,12 +83,8 @@ class DartDriver:
             _log.debug("RX %s", buf.hex())
             return bytes(buf)
 
-    # ────────── фоновый listener ──────────────────────────────
+    # ────────── фоновый reader ────────────────────────────────
     def start_reader(self, callback: Callable[[bytes], None]) -> None:
-        """
-        Запускает daemon‑нить, которая безостановочно читает порт и
-        передаёт целиковые кадры в callback(bytes).
-        """
         def _loop():
             frame = bytearray()
             while True:
@@ -96,7 +93,6 @@ class DartDriver:
                     continue
                 frame.append(b[0])
 
-                # конец кадра: ETX + SF
                 if len(frame) >= 2 and frame[-2:] == b"\x03\xFA":
                     callback(bytes(frame))
                     frame.clear()
@@ -107,13 +103,13 @@ class DartDriver:
     def _build_frame(self, addr: int, blocks: List[bytes]) -> bytes:
         body = b"".join(blocks)
         hdr  = bytes([addr, 0xF0, self._seq, len(body)]) + body
-        self._seq ^= 0x80                      # 0x00 → 0x80 → 0x00 …
-        crc  = crc16(hdr)
+        self._seq ^= 0x80
+        crc  = _crc16(hdr)
         return bytes([self.STX]) + hdr + crc.to_bytes(2, "little") + bytes([self.ETX, self.SF])
 
-    def cd1(self, pump_id: int, dcc: int) -> bytes:
-        """Удобный вызов CD1 (RESET / STOP / …)."""
-        return self.transact(0x50 + pump_id, [bytes([DartTrans.CD1, 0x01, dcc])])
+    def cd1(self, pump_id: int, dcc: int) -> None:
+        """CD‑1 без ожидания ответа."""
+        self.transact(0x50 + pump_id, [bytes([DartTrans.CD1, 0x01, dcc])], read=False)
 
 
 # singleton
