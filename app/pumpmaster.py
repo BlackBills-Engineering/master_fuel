@@ -1,3 +1,4 @@
+# app/pumpmaster.py
 import asyncio, logging
 from typing import List, Dict
 
@@ -23,25 +24,34 @@ def _bcd_to_int(b: bytes) -> int:
         v = v * 100 + ((byte >> 4) & 0xF)*10 + (byte & 0xF)
     return v
 
-# «номер сопла → сторона» для 4-шлангового дозатора
+def _int_to_bcd(val: int, bytes_len: int) -> bytes:
+    out = bytearray()
+    for _ in range(bytes_len):
+        digit1 = val % 10
+        digit2 = (val // 10) % 10
+        out.insert(0, (digit2 << 4) | digit1)
+        val //= 100
+    return bytes(out)
+
+# номер сопла → сторона (под 4 шланга)
 SIDE_BY_NOZ = {1: "left", 2: "right", 3: "left", 4: "right"}
 
 class PumpMaster:
-    GAP, TIMEOUT = 0.25, 1.0
+    GAP, TIMEOUT = 0.25, 1.0          # цикл опроса / таймаут transact
 
     def __init__(self, first: int = 0x50, last: int = 0x50):
         self.addr_range = range(first, last + 1)
         self.events: asyncio.Queue = asyncio.Queue()
         self.grade_table: Dict[int, Dict[int, int]] = {}   # addr → {noz: grade}
 
-    # ───── PUBLIC API ────────────────────────────────────────
+    # ───── PUBLIC API (как было) ────────────────────────────
     def authorize(self, addr: int, vol: float | None, amt: float | None):
         blocks: List[bytes] = []
         if vol is not None:
             blocks.append(bytes([DartTrans.CD3, 0x04]) + int(vol * 1000).to_bytes(4, "big"))
         if amt is not None:
             blocks.append(bytes([DartTrans.CD4, 0x04]) + int(amt * 100).to_bytes(4, "big"))
-        blocks.append(bytes([DartTrans.CD1, 0x01, 0x01]))        # AUTHORIZE
+        blocks.append(bytes([DartTrans.CD1, 0x01, 0x01]))   # AUTHORIZE
         asyncio.get_running_loop().run_in_executor(None, hw.transact,
                                                    addr, blocks, self.TIMEOUT)
 
@@ -50,27 +60,48 @@ class PumpMaster:
 
     # ───── POLL LOOP ─────────────────────────────────────────
     async def poll_loop(self):
-        # запрос Pump-parameters → DC-7 (grade table)
-        for adr in self.addr_range:
-            hw.cd1(adr - 0x50, 0x06)
-            await asyncio.sleep(0.05)
+        await self._startup()          # ← новый этап инициализации
 
-        # обычный опрос
         while True:
             for adr in self.addr_range:
-                raw = await asyncio.get_running_loop().run_in_executor(None, hw.cd1, adr - 0x50, 0x00)
+                raw = await asyncio.get_running_loop().run_in_executor(
+                    None, hw.cd1, adr - 0x50, 0x00          # RETURN STATUS
+                )
                 if raw:
                     await self._parse(raw)
                 await asyncio.sleep(self.GAP)
 
-    # ───── PARSE ─────────────────────────────────────────────
+    # ───── STARTUP helpers ──────────────────────────────────
+    async def _startup(self):
+        """спрашиваем таблицу GRADE и «будим» насос ценой, если он в status 0"""
+        for adr in self.addr_range:
+            # 1) вернуть параметры→ DC-7
+            hw.cd1(adr - 0x50, 0x06)
+            await asyncio.sleep(0.05)
+
+            # 2) спросить status
+            raw = await asyncio.get_running_loop().run_in_executor(
+                None, hw.cd1, adr - 0x50, 0x00
+            )
+            if raw and b'\x01\x01\x00' in raw:     # DC-1 status=0
+                self._init_price(adr)              # шлём «нулевую» цену
+                await asyncio.sleep(0.05)
+
+    def _init_price(self, addr: int):
+        """PRICE UPDATE (CD-5) – ставим 00.00 руб, чтобы выйти из not_programmed"""
+        price_bcd = _int_to_bcd(0, 3)          # 000000
+        block = bytes([0x05, 3*4]) + price_bcd*4   # PRI1…PRI4
+        hw.transact(addr, [block], self.TIMEOUT)
+        log.info("Pump %02X initial price update sent", addr)
+
+    # ───── PARSE  +  DC handlers ────────────────────────────
     async def _parse(self, buf: bytes):
         for chunk in buf.split(b"\x02"):
             if not chunk:
                 continue
             fr = b"\x02" + chunk
 
-            if len(fr) < 8 or fr[-1] != 0xFA:           # структура
+            if len(fr) < 8 or fr[-1] != 0xFA:
                 continue
             if crc16_mkr(fr[1:-4]) != int.from_bytes(fr[-4:-2], "little"):
                 continue
@@ -85,24 +116,23 @@ class PumpMaster:
                 payload, body = body[2:2+ln], body[2+ln:]
                 await self._handle_dc(addr, dc, payload)
 
-    # ───── HANDLE DC ────────────────────────────────────────
     async def _handle_dc(self, addr: int, dc: int, pl: bytes):
         p: PumpState = store[addr]
 
-        # DC-7 — Pump parameters (содержит GRADE[15])
+        # DC-7 — Pump parameters (GRADE[15])
         if dc == 0x07 and len(pl) >= 46:
             self.grade_table[addr] = {i+1: pl[30+i] for i in range(15)}
             log.info("Pump %02X grades: %s", addr, self.grade_table[addr])
             return
 
-        # DC-3 — nozzle-event + текущая цена
+        # DC-3 — nozzle & price
         if dc == 0x03 and len(pl) >= 4:
-            price   = _bcd_to_int(pl[0:3]) / 100
-            noz     = pl[3]
-            noz_id  = noz & 0x0F
-            taken   = bool(noz & 0x10)
-            side    = SIDE_BY_NOZ.get(noz_id, "left")
-            grade   = self.grade_table.get(addr, {}).get(noz_id)
+            price  = _bcd_to_int(pl[0:3]) / 100
+            noz    = pl[3]
+            noz_id = noz & 0x0F
+            taken  = bool(noz & 0x10)
+            side   = SIDE_BY_NOZ.get(noz_id, "left")
+            grade  = self.grade_table.get(addr, {}).get(noz_id)
 
             await self.events.put({
                 "addr": addr,
