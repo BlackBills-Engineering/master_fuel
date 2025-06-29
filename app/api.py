@@ -45,7 +45,6 @@ async def do_command(addr: int, cmd: Literal["reset","stop","suspend","resume","
     master.command(addr, mapping[cmd])
     return {"ok": True}
 
-# ────────── WebSocket
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -56,10 +55,10 @@ async def ws_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         forward.cancel()
 
-async def _forward_events(ws):
+async def _forward_events(ws: WebSocket):
     while True:
         ev = await master.events.get()
-        await ws.send_json(Event(**ev).model_dump())
+        await ws.send_json(ev)  
 
 if __name__ == "__main__":
     uvicorn.run("app.api:app", host="0.0.0.0", port=8000, reload=True, log_level="debug")
