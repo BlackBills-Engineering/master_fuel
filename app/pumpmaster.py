@@ -41,15 +41,20 @@ SIDE_BY_NOZ = {1: "left", 2: "right", 3: "left", 4: "right"}
 class PumpMaster:
     GAP, TIMEOUT = 0.25, 1.0          # цикл опроса / таймаут transact
 
-    def __init__(self, first: int = 0x50, last: int = 0x50):
+    def __init__(self, first: int = 0x50, last: int = 0x52):  # Диапазон адресов колонок
         self.addr_range = range(first, last + 1)
         self.events: asyncio.Queue = asyncio.Queue()
         self.grade_table: Dict[int, Dict[int, int]] = {}   # addr → {noz_id: grade}
+        
+        # Логируем диапазон адресов при инициализации
+        pump_addrs = [f"0x{addr:02X}({addr-0x50})" for addr in self.addr_range]
+        log.info("PumpMaster initialized for pumps: %s", pump_addrs)
 
     # ───── PUBLIC API (как было) ────────────────────────────
     def authorize(self, addr: int, vol: float | None, amt: float | None):
-        log.info("=== AUTHORIZE REQUEST: addr=0x%02X, volume=%.3f L, amount=%.2f RUB ===", 
-                 addr, vol or 0.0, amt or 0.0)
+        pump_id = addr - 0x50  # Вычисляем ID насоса
+        log.info("=== AUTHORIZE REQUEST: pump 0x%02X(%d), volume=%.3f L, amount=%.2f RUB ===", 
+                 addr, pump_id, vol or 0.0, amt or 0.0)
         
         blocks: List[bytes] = []
         
@@ -57,27 +62,30 @@ class PumpMaster:
             vol_raw = int(vol * 1000)
             vol_block = bytes([DartTrans.CD3, 0x04]) + vol_raw.to_bytes(4, "big")
             blocks.append(vol_block)
-            log.info("Adding preset volume block: %.3f L -> %d raw -> %s", 
-                     vol, vol_raw, vol_block.hex())
+            log.info("Pump 0x%02X(%d): Adding preset volume block: %.3f L -> %d raw -> %s", 
+                     addr, pump_id, vol, vol_raw, vol_block.hex())
             
         if amt is not None:
             amt_raw = int(amt * 100)
             amt_block = bytes([DartTrans.CD4, 0x04]) + amt_raw.to_bytes(4, "big") 
             blocks.append(amt_block)
-            log.info("Adding preset amount block: %.2f RUB -> %d raw -> %s", 
-                     amt, amt_raw, amt_block.hex())
+            log.info("Pump 0x%02X(%d): Adding preset amount block: %.2f RUB -> %d raw -> %s", 
+                     addr, pump_id, amt, amt_raw, amt_block.hex())
         
         auth_block = bytes([DartTrans.CD1, 0x01, 0x06])  # AUTHORIZE command
         blocks.append(auth_block)
-        log.info("Adding authorize command block: %s", auth_block.hex())
+        log.info("Pump 0x%02X(%d): Adding authorize command block: %s", 
+                 addr, pump_id, auth_block.hex())
         
-        log.info("Executing authorize transaction with %d blocks", len(blocks))
+        log.info("Pump 0x%02X(%d): Executing authorize transaction with %d blocks", 
+                 addr, pump_id, len(blocks))
         asyncio.get_running_loop().run_in_executor(
             None, hw.transact, addr, blocks, self.TIMEOUT
         )
 
     def command(self, addr: int, dcc: int):
         """RESET / STOP / SUSPEND / RESUME / OFF"""
+        pump_id = addr - 0x50  # Вычисляем ID насоса
         cmd_names = {
             0x00: "RETURN_STATUS",
             0x05: "RESET",
@@ -86,27 +94,31 @@ class PumpMaster:
         }
         cmd_name = cmd_names.get(dcc, f"UNKNOWN_0x{dcc:02X}")
         
-        log.info("=== COMMAND REQUEST: %s (0x%02X) to addr=0x%02X ===", 
-                 cmd_name, dcc, addr)
+        log.info("=== COMMAND REQUEST: %s (0x%02X) to pump 0x%02X(%d) ===", 
+                 cmd_name, dcc, addr, pump_id)
         
-        asyncio.get_running_loop().run_in_executor(None, hw.cd1, addr - 0x50, dcc)
+        asyncio.get_running_loop().run_in_executor(None, hw.cd1, pump_id, dcc)
 
     # ───── POLL LOOP ─────────────────────────────────────────
     async def poll_loop(self):
         log.info("=== STARTING PUMP POLL LOOP ===")
+        log.info("Polling pumps in range: %s", 
+                 [f"0x{addr:02X}({addr-0x50})" for addr in self.addr_range])
         await self._startup()
 
         while True:
             for adr in self.addr_range:
-                log.debug("Polling pump addr=0x%02X (RETURN STATUS)", adr)
+                pump_id = adr - 0x50
+                log.debug("Polling pump 0x%02X(%d) (RETURN STATUS)", adr, pump_id)
                 raw = await asyncio.get_running_loop().run_in_executor(
-                    None, hw.cd1, adr - 0x50, 0x00          # RETURN STATUS
+                    None, hw.cd1, pump_id, 0x00          # RETURN STATUS
                 )
                 if raw:
-                    log.debug("Received response from pump 0x%02X: %s", adr, raw.hex())
+                    log.debug("Received response from pump 0x%02X(%d): %d bytes", 
+                             adr, pump_id, len(raw))
                     await self._parse(raw)
                 else:
-                    log.debug("No response from pump 0x%02X", adr)
+                    log.debug("No response from pump 0x%02X(%d)", adr, pump_id)
                 await asyncio.sleep(self.GAP)
 
     # ───── STARTUP ───────────────────────────────────────────
@@ -114,36 +126,38 @@ class PumpMaster:
         """Будим насос: price-update (CD5) + RESET, потом спрашиваем GRADE"""
         log.info("=== PUMP STARTUP SEQUENCE ===")
         for adr in self.addr_range:
-            log.info("Initializing pump addr=0x%02X", adr)
+            pump_id = adr - 0x50
+            log.info("Initializing pump 0x%02X(%d)", adr, pump_id)
             self._init_price(adr)           # price + reset
             await asyncio.sleep(0.05)
             
-            log.info("Requesting pump parameters from addr=0x%02X", adr)
-            hw.cd1(adr - 0x50, 0x02)        # RETURN PUMP PARAMETERS (DC-7)
+            log.info("Requesting pump parameters from 0x%02X(%d)", adr, pump_id)
+            hw.cd1(pump_id, 0x02)        # RETURN PUMP PARAMETERS (DC-7)
             await asyncio.sleep(0.05)
         log.info("=== STARTUP SEQUENCE COMPLETED ===")
 
     def _init_price(self, addr: int):
         """PRICE UPDATE (CD-5) – ставим 45.00 ₽ на 4 сопла и делаем RESET"""
-        log.info("Setting price for pump addr=0x%02X", addr)
+        pump_id = addr - 0x50
+        log.info("Setting price for pump 0x%02X(%d)", addr, pump_id)
         
         price_value = 45.00
         price_raw = int(price_value * 100)  # 4500
         price_bcd = _int_to_bcd(price_raw, 3)
         
-        log.info("Price conversion: %.2f RUB -> %d raw -> %s BCD", 
-                 price_value, price_raw, price_bcd.hex())
+        log.info("Pump 0x%02X(%d): Price conversion: %.2f RUB -> %d raw -> %s BCD", 
+                 addr, pump_id, price_value, price_raw, price_bcd.hex())
         
         # 4 сопла × 3 байта каждое
         block = bytes([0x05, 12]) + price_bcd * 4
-        log_hex_data(log, logging.INFO, "Price update block", block)
+        log_hex_data(log, logging.INFO, f"Pump 0x{addr:02X}({pump_id}) price update block", block)
         
         hw.transact(addr, [block], self.TIMEOUT)
-        log.info("Price update sent to pump 0x%02X", addr)
+        log.info("Price update sent to pump 0x%02X(%d)", addr, pump_id)
         
-        log.info("Sending RESET command to pump 0x%02X", addr)
-        hw.cd1(addr - 0x50, 0x05)  # RESET
-        log.info("Pump 0x%02X: price %.2f ₽ set + RESET sent", addr, price_value)
+        log.info("Sending RESET command to pump 0x%02X(%d)", addr, pump_id)
+        hw.cd1(pump_id, 0x05)  # RESET
+        log.info("Pump 0x%02X(%d): price %.2f ₽ set + RESET sent", addr, pump_id, price_value)
 
     # ───── PARSE + handlers ─────────────────────────────────
     async def _parse(self, buf: bytes):
@@ -206,32 +220,34 @@ class PumpMaster:
                 await self._handle_dc(addr, dc, payload)
 
     async def _handle_dc(self, addr: int, dc: int, pl: bytes):
-        log.debug("=== HANDLING TRANSACTION DC%d from addr=0x%02X ===", dc, addr)
-        log_hex_data(log, logging.DEBUG, f"DC{dc} payload", pl)
+        pump_id = addr - 0x50  # Вычисляем ID насоса
+        log.debug("=== HANDLING TRANSACTION DC%d from pump 0x%02X(%d) ===", dc, addr, pump_id)
+        log_hex_data(log, logging.DEBUG, f"DC{dc} payload from pump 0x{addr:02X}({pump_id})", pl)
         
         p: PumpState = store[addr]
 
         # DC-7 — таблица GRADE[15]
         if dc == 0x07 and len(pl) >= 46:
-            log_transaction_summary(log, "PROC", addr, "DC7-PUMP_PARAMS", "processing")
+            log_transaction_summary(log, "PROC", addr, "DC7-PUMP_PARAMS", f"pump {pump_id}")
             
             dpvol = pl[22] if len(pl) > 22 else 0
             dpamo = pl[23] if len(pl) > 23 else 0 
             dpunp = pl[24] if len(pl) > 24 else 0
             
-            log.info("Pump params: decimals vol=%d, amt=%d, price=%d", dpvol, dpamo, dpunp)
+            log.info("Pump 0x%02X(%d) params: decimals vol=%d, amt=%d, price=%d", 
+                     addr, pump_id, dpvol, dpamo, dpunp)
             
             self.grade_table[addr] = {i + 1: pl[30 + i] for i in range(15) if len(pl) > 30 + i}
             active_grades = {k: v for k, v in self.grade_table[addr].items() if v != 0}
             
-            log.info("Pump 0x%02X grades discovered: %s", addr, active_grades)
+            log.info("Pump 0x%02X(%d) grades discovered: %s", addr, pump_id, active_grades)
             log_transaction_summary(log, "PROC", addr, "DC7-PUMP_PARAMS", 
-                                  f"grades: {list(active_grades.keys())}")
+                                  f"pump {pump_id} grades: {list(active_grades.keys())}")
             return
 
         # DC-3 — nozzle event + price
         if dc == 0x03 and len(pl) >= 4:
-            log_transaction_summary(log, "PROC", addr, "DC3-NOZZLE_EVENT", "processing")
+            log_transaction_summary(log, "PROC", addr, "DC3-NOZZLE_EVENT", f"pump {pump_id}")
             
             price_bcd = pl[0:3]
             price = _bcd_to_int(price_bcd) / 100
@@ -241,11 +257,12 @@ class PumpMaster:
             side = SIDE_BY_NOZ.get(noz_id, "left")
             grade = self.grade_table.get(addr, {}).get(noz_id)
 
-            log.info("Nozzle event: id=%d, %s, side=%s, grade=%s, price=%.2f RUB", 
-                     noz_id, "TAKEN" if taken else "RETURNED", side, grade, price)
+            log.info("Pump 0x%02X(%d) nozzle event: id=%d, %s, side=%s, grade=%s, price=%.2f RUB", 
+                     addr, pump_id, noz_id, "TAKEN" if taken else "RETURNED", side, grade, price)
 
             event = {
                 "addr": addr,
+                "pump_id": pump_id,
                 "nozzle_id": noz_id,
                 "side": side,
                 "grade": grade,
@@ -254,13 +271,13 @@ class PumpMaster:
             }
             
             log_transaction_summary(log, "EVENT", addr, "NOZZLE_EVENT", 
-                                  f"noz{noz_id} {'OUT' if taken else 'IN'}")
+                                  f"pump {pump_id} noz{noz_id} {'OUT' if taken else 'IN'}")
             await self.events.put(event)
             return
 
         # DC-2 — volume / amount
         if dc == 0x02 and len(pl) >= 8:
-            log_transaction_summary(log, "PROC", addr, "DC2-VOLUME_AMOUNT", "processing")
+            log_transaction_summary(log, "PROC", addr, "DC2-VOLUME_AMOUNT", f"pump {pump_id}")
             
             # Исправляем парсинг - убираем первый байт side
             vol_bcd = pl[0:4]
@@ -271,23 +288,25 @@ class PumpMaster:
             # Определяем сторону по текущему активному соплу
             side = "left"  # по умолчанию, можно улучшить логику
             
-            log.info("Dispensing update: vol=%.3f L, amt=%.2f RUB, side=%s", vol, amt, side)
+            log.info("Pump 0x%02X(%d) dispensing update: vol=%.3f L, amt=%.2f RUB, side=%s", 
+                     addr, pump_id, vol, amt, side)
             
             event = {
                 "addr": addr,
+                "pump_id": pump_id,
                 "side": side,
                 "volume_l": vol,
                 "amount_cur": amt
             }
             
             log_transaction_summary(log, "EVENT", addr, "VOLUME_UPDATE", 
-                                  f"{vol:.3f}L / {amt:.2f}RUB")
+                                  f"pump {pump_id} {vol:.3f}L / {amt:.2f}RUB")
             await self.events.put(event)
             return
 
         # DC-1 — status
         if dc == 0x01 and pl:
-            log_transaction_summary(log, "PROC", addr, "DC1-STATUS", "processing")
+            log_transaction_summary(log, "PROC", addr, "DC1-STATUS", f"pump {pump_id}")
             
             code = pl[0]
             status_names = {
@@ -301,14 +320,14 @@ class PumpMaster:
             }
             status_name = status_names.get(code, f"UNKNOWN_0x{code:02X}")
             
-            log.info("Status change: 0x%02X (%s)", code, status_name)
+            log.info("Pump 0x%02X(%d) status change: 0x%02X (%s)", addr, pump_id, code, status_name)
             
             p.left.status = p.right.status = PumpStatus(code)
             
-            event = {"addr": addr, "status": code}
-            log_transaction_summary(log, "EVENT", addr, "STATUS_CHANGE", status_name)
+            event = {"addr": addr, "pump_id": pump_id, "status": code}
+            log_transaction_summary(log, "EVENT", addr, "STATUS_CHANGE", f"pump {pump_id} {status_name}")
             await self.events.put(event)
             return
             
-        log.warning("Unhandled transaction DC%d from addr=0x%02X", dc, addr)
-        log_hex_data(log, logging.WARNING, f"Unhandled DC{dc} payload", pl)
+        log.warning("Unhandled transaction DC%d from pump 0x%02X(%d)", dc, addr, pump_id)
+        log_hex_data(log, logging.WARNING, f"Unhandled DC{dc} from pump 0x{addr:02X}({pump_id})", pl)
