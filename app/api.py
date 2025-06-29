@@ -110,7 +110,6 @@ async def do_command(addr: int, cmd: Literal["reset","stop","switch_off","return
     master.command(addr, mapping[cmd])
     return {"ok": True}
 
-# ────────── WebSocket
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -121,10 +120,10 @@ async def ws_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         forward.cancel()
 
-async def _forward_events(ws):
+async def _forward_events(ws: WebSocket):
     while True:
         ev = await master.events.get()
-        await ws.send_json(Event(**ev).model_dump())
+        await ws.send_json(ev)  
 
 # ────────── Debug
 @app.get("/debug/store")

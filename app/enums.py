@@ -10,6 +10,7 @@ class PumpCmd(IntEnum):
     STOP                 = 0x08      # 8H STOP
     SWITCH_OFF           = 0x0A      # AH SWITCH OFF
     # Note: SUSPEND/RESUME are not pump commands but status modifiers
+    PRICE_UPD  = 0x09        # CD-5, понадобился для удобства
 
 class PumpStatus(IntEnum):          # DC1 «RETURN STATUS»
     PUMP_NOT_PROGRAMMED = 0x00      # 0 PUMP NOT PROGRAMMED

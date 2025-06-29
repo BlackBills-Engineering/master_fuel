@@ -10,12 +10,14 @@ class NozzleInfo(BaseModel):
     price: float = 0.0
 
 class PresetRq(BaseModel):
-    side: Literal["left","right"]
-    volume_l:  confloat(gt=0)|None = Field(None, example=20)
-    amount_cur: confloat(gt=0)|None = Field(None, example=1500)
+    side: Literal["left", "right"]
+    volume_l:   confloat(gt=0) | None = Field(None, example=20)
+    amount_cur: confloat(gt=0) | None = Field(None, example=1500)
+
 
 class CommandRq(BaseModel):
     cmd: PumpCmd
+
 
 class PumpSnapshot(BaseModel):
     addr: conint(ge=0)
