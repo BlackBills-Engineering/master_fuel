@@ -23,7 +23,53 @@ async def _run_poller():
 # ────────── REST
 @app.get("/pumps", response_model=list[PumpSnapshot])
 async def get_pumps():
-    return [PumpSnapshot(addr=a, **p.model_dump()) for a, p in store.items()]
+    """Get all known pumps from store (populated by polling loop)"""
+    pumps = []
+    for addr, pump_state in store.items():
+        try:
+            # Create pump snapshot from store data
+            snapshot = PumpSnapshot(addr=addr, **pump_state.model_dump())
+            pumps.append(snapshot)
+        except Exception as e:
+            # If there's an error, create a basic snapshot
+            from .state import PumpState
+            default_state = PumpState()
+            snapshot = PumpSnapshot(addr=addr, **default_state.model_dump())
+            pumps.append(snapshot)
+    
+    return pumps
+
+@app.get("/pumps/status")
+async def get_pumps_status():
+    """Get pump communication status and diagnostic info"""
+    status = {
+        "total_pumps_in_store": len(store),
+        "pump_addresses": list(store.keys()),
+        "communication_active": master is not None,
+        "last_poll_time": "unknown",  # You could add this to PumpMaster
+        "pumps_detail": {}
+    }
+    
+    for addr, pump_state in store.items():
+        status["pumps_detail"][addr] = {
+            "left_status": pump_state.left.status.name if pump_state.left.status else "unknown",
+            "right_status": pump_state.right.status.name if pump_state.right.status else "unknown",
+            "left_volume": pump_state.left.volume_l,
+            "right_volume": pump_state.right.volume_l,
+            "nozzles_discovered": len(pump_state.all_nozzles),
+            "last_update": "unknown"  # You could add timestamps
+        }
+    
+    return status
+
+@app.post("/pumps/{addr}/force-poll")
+async def force_poll_pump(addr: int):
+    """Manually trigger a poll of a specific pump for testing"""
+    try:
+        await master._poll_one(addr)
+        return {"ok": True, "message": f"Triggered poll for pump 0x{addr:02X}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/pumps/{addr}/nozzles")
 async def get_pump_nozzles(addr: int):
@@ -79,6 +125,53 @@ async def _forward_events(ws):
     while True:
         ev = await master.events.get()
         await ws.send_json(Event(**ev).model_dump())
+
+# ────────── Debug
+@app.get("/debug/store")
+async def debug_store():
+    """Debug endpoint to see raw store contents"""
+    return {
+        "store_type": str(type(store)),
+        "store_contents": {
+            addr: {
+                "left": pump.left.model_dump(),
+                "right": pump.right.model_dump(), 
+                "all_nozzles": pump.all_nozzles
+            } for addr, pump in store.items()
+        },
+        "store_size": len(store),
+        "expected_pump_addresses": list(master.addr_range) if master else []
+    }
+
+@app.get("/debug/communication")
+async def debug_communication():
+    """Debug communication issues"""
+    try:
+        # Check if we can import the driver
+        from app.mekser.driver import driver as hw
+        
+        # Get current config
+        from app.mekser.config_ext import get as get_config
+        config = get_config()
+        
+        return {
+            "driver_available": True,
+            "serial_config": {
+                "port": config.serial_port,
+                "baud_rate": config.baud_rate,
+                "parity": config.parity,
+                "timeout": config.timeout
+            },
+            "pump_address_range": list(master.addr_range),
+            "store_has_data": len(store) > 0,
+            "suggestion": "Check serial port connection and run serial diagnostic"
+        }
+    except Exception as e:
+        return {
+            "driver_available": False,
+            "error": str(e),
+            "suggestion": "Driver import failed - check dependencies"
+        }
 
 if __name__ == "__main__":
     uvicorn.run("app.api:app", host="0.0.0.0", port=8000, reload=True, log_level="debug")

@@ -134,14 +134,14 @@ class PumpMaster:
         while True:
             for adr in self.addr_range:
                 await self._poll_one(adr)
-                await asyncio.sleep(0.5)  # Increased from 0.25 to give pump more time
+                await asyncio.sleep(2.0)  # Increased from 0.5 to reduce communication load
 
     async def _initial(self):
         log.info("Starting initial pump discovery...")
         for adr in self.addr_range:
             log.info(f"Discovering pump at address 0x{adr:02X}")
             await self._poll_one(adr)
-            await asyncio.sleep(0.2)  # Increased from 0.1
+            await asyncio.sleep(1.0)  # Increased from 0.2
 
     async def _poll_one(self, adr:int):
         try:
